@@ -55,6 +55,19 @@ def get_cfree_approach_pose_test(problem, collisions=True):
         return True
     return test
 
+def get_cfree_align_pose_test(problem, collisions=True):
+    # TODO: apply this before inverse kinematics as well
+    gripper = problem.get_gripper()
+    def test(b1, p1, p3, g1, b2, p2):
+        if not collisions or (b1 == b2):
+            return True
+        p2.assign()
+        for _ in iterate_approach_path(problem.robot, gripper, p1, g1, body=b1):
+            if pairwise_collision(b1, b2) or pairwise_collision(gripper, b2):
+                return False
+        return True
+    return test
+
 
 def get_cfree_traj_pose_test(robot, collisions=True):
     def test(c, b2, p2):

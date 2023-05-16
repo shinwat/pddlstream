@@ -3,11 +3,11 @@
 from __future__ import print_function
 from examples.pybullet.tiago.problems import PROBLEMS
 
-from examples.pybullet.tiago.streams import get_cfree_approach_pose_test, get_cfree_pose_pose_test, get_cfree_traj_pose_test, \
+from examples.pybullet.tiago.streams import get_cfree_align_pose_test, get_cfree_approach_pose_test, get_cfree_pose_pose_test, get_cfree_traj_pose_test, \
     get_cfree_traj_grasp_pose_test, BASE_CONSTANT, distance_fn, move_cost_fn, get_cfree_obj_approach_pose_test
 
-from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf, control_commands
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, get_grasp_gen, get_ik_ir_gen, get_motion_gen, get_stable_gen
+from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, apply_commands, control_commands, get_align_gen, get_arm_motion_gen, get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, get_motion_gen, get_stable_gen
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_arm_joints, get_gripper_joints, get_group_joints, \
     get_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, get_bodies, get_body_name, get_max_limit, get_pose, is_placement, disconnect, \
@@ -22,12 +22,12 @@ from pddlstream.utils import read, INF, get_file_path, Profiler
 from pddlstream.language.function import FunctionInfo
 from pddlstream.language.stream import StreamInfo, DEBUG
 
-from examples.pybullet.utils.pybullet_tools.pr2_primitives import apply_commands, State
+from examples.pybullet.utils.pybullet_tools.pr2_primitives import State
 from examples.pybullet.utils.pybullet_tools.utils import draw_base_limits, WorldSaver, has_gui, str_from_object
 
 #TODO: starting with the simpler pr2 problem
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable'):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -44,6 +44,8 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False):
         ('AtBConf', initial_bq),
         Equal(('PickCost',), 1),
         Equal(('PlaceCost',), 1),
+        Equal(('AlignCost',), 1),
+        Equal(('PushCost',), 1),
     ] + [('Sink', s) for s in problem.sinks] + \
            [('Stove', s) for s in problem.stoves] + \
            [('Connected', b, d) for b, d in problem.buttons] + \
@@ -56,7 +58,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False):
 
     for body in problem.movable:
         pose = Pose(body, get_pose(body), init=True) # TODO: supported here
-        init += [('Graspable', body), ('Pose', body, pose),
+        init += [(affordance, body), ('Pose', body, pose),
                  ('AtPose', body, pose), ('Stackable', body, None)]
         for surface in problem.surfaces:
             if is_placement(body, surface):
@@ -87,11 +89,15 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False):
     stream_map = {
         'sample-pose': from_gen_fn(get_stable_gen(problem, collisions=collisions)),
         'sample-grasp': from_list_fn(get_grasp_gen(problem, collisions=collisions)),
+        'sample-align': from_fn(get_align_gen(problem, collisions=collisions)),
+        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
         'test-cfree-approach-pose': from_test(get_cfree_approach_pose_test(problem, collisions=collisions)),
         'test-cfree-traj-pose': from_test(get_cfree_traj_pose_test(problem.robot, collisions=collisions)),
+        'test-cfree-align-pose': from_test(get_cfree_align_pose_test(problem, collisions=collisions)),
 
         #'MoveCost': move_cost_fn,
         'Distance': distance_fn,
@@ -124,6 +130,20 @@ def post_process(problem, plan, teleport=False):
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
             new_commands = [t, detach, open_gripper, t.reverse()]
+        elif name == 'align':
+            a, b, p, _, g, _, _, c = args
+            [t] = c.commands
+            close_gripper = GripperCommand(problem.robot, g.grasp_width, teleport=teleport)
+            attach = Attach(problem.robot, g, b)
+            new_commands = [close_gripper, t]
+        elif name == 'push':
+            a, b, p, _, g, _, _, c = args
+            [t] = c.commands
+            gripper_joint = get_gripper_joints(problem.robot)[0]
+            position = get_max_limit(problem.robot, gripper_joint)
+            open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
+            detach = Detach(problem.robot, b)
+            new_commands = [t, t.reverse(), open_gripper]
         else:
             raise ValueError(name)
         print(i, name, args, new_commands)
@@ -147,6 +167,7 @@ def main(verbose=True):
     parser.add_argument('-teleport', action='store_true', help='Teleports between configurations')
     parser.add_argument('-enable', action='store_true', help='Enables rendering during planning')
     parser.add_argument('-simulate', action='store_true', help='Simulates the system')
+    parser.add_argument('-f', '--affordance', default='Graspable', help='The affordance of the objects')
     args = parser.parse_args()
     print('Arguments:', args)
 
@@ -160,7 +181,7 @@ def main(verbose=True):
         problem = problem_fn(num=args.number)
     saver = WorldSaver()
 
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport)
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),

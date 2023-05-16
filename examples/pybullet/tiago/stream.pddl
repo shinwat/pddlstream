@@ -11,12 +11,30 @@
     :outputs (?g)
     :certified (Grasp ?o ?g)
   )
+  (:stream sample-align
+    :inputs (?o ?p1 ?p2)
+    :domain (and (Alignable ?o) (Pose ?o ?p1) (Pose ?o ?p2))
+    :outputs (?g)
+    :certified (Alignment ?o ?p1 ?p2 ?g)
+  )
 
+  (:stream plan-push-motion
+    :inputs (?a ?o ?p1 ?p2 ?g ?q1 ?q2)
+    :domain (and (Controllable ?a) (Alignment ?o ?p1 ?p2 ?g) (Pose ?o ?p1) (AConf ?a ?q2) (BConf ?q1))
+    :outputs (?t)
+    :certified (and (ATraj ?t) (ArmMotion ?a ?p1 ?p2 ?q1 ?q2 ?t))
+  )
+  (:stream inverse-reachable-kinematics; KLUDGE: copy IK stream because domain does not accept disjunction
+    :inputs (?a ?o ?p1 ?p2 ?g)
+    :domain (and (Controllable ?a) (Pose ?o ?p1) (Alignment ?o ?p1 ?p2 ?g)); (Pose ?o ?p2)
+    :outputs (?q1 ?q2 ?t)
+    :certified (and (BConf ?q1) (AConf ?a ?q2) (ATraj ?t) (Kin2 ?a ?o ?p1 ?p2 ?g ?q1 ?q2 ?t));  (Kin2 ?a ?o ?p ?g ?q1 ?q2 ?t)
+  )
   (:stream inverse-kinematics
     :inputs (?a ?o ?p ?g)
     :domain (and (Controllable ?a) (Pose ?o ?p) (Grasp ?o ?g))
     :outputs (?q ?t)
-    :certified (and (BConf ?q) (ATraj ?t) (Kin ?a ?o ?p ?g ?q ?t)) ; (ATraj ?t)
+    :certified (and (BConf ?q) (ATraj ?t) (Kin ?a ?o ?p ?g ?q ?t))
   )
   (:stream plan-base-motion
     :inputs (?q1 ?q2)
@@ -36,7 +54,11 @@
     :domain (and (Pose ?o1 ?p1) (Grasp ?o1 ?g1) (Pose ?o2 ?p2))
     :certified (CFreeApproachPose ?o1 ?p1 ?g1 ?o2 ?p2)
   )
-
+  (:stream test-cfree-align-pose
+    :inputs (?o1 ?p1 ?p3 ?g1 ?o2 ?p2)
+    :domain (and (Pose ?o1 ?p1) (Alignment ?o1 ?p1 ?p3 ?g1) (Pose ?o2 ?p2))
+    :certified (CFreeAlignPose ?o1 ?p1 ?p3 ?g1 ?o2 ?p2)
+  )
   (:stream test-cfree-traj-pose
     :inputs (?t ?o2 ?p2)
     :domain (and (ATraj ?t) (Pose ?o2 ?p2))
