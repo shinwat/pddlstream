@@ -41,7 +41,7 @@ def packed(arm='left', grasp_type='top', num=5):
     plate_width = 0.27
     print('Width:', plate_width)
     plate_width = min(plate_width, 0.6)
-    plate_height = 0.001
+    plate_height = 0.
 
     initial_conf = get_carry_conf(grasp_type)
 
@@ -58,7 +58,7 @@ def packed(arm='left', grasp_type='top', num=5):
     set_point(plate, Point(z=plate_z))
     surfaces = [table, plate]
 
-    blocks = [create_box(block_width, block_width, block_height, color=BLUE) for _ in range(num)]
+    blocks = [create_box(block_width, block_width, block_height, color=BLUE, mass=0.05) for _ in range(num)]
     initial_surfaces = {block: table for block in blocks}
 
     min_distances = {block: 0.05 for block in blocks}
