@@ -17,7 +17,24 @@
     :outputs (?g)
     :certified (Alignment ?o ?p1 ?p2 ?g)
   )
-
+  (:stream sample-hook
+    :inputs (?o ?r ?p1 ?p2)
+    :domain (and (Hookable ?o) (Pose ?o ?p1) (Pose ?o ?p2) (Tool ?r))
+    :outputs (?p3 ?g)
+    :certified (Hooked ?o ?p1 ?p2 ?p3 ?g)
+  )
+  (:stream plan-sweep-motion
+    :inputs (?a ?o ?p1 ?p2 ?p3 ?g ?q1 ?q2);
+    :domain (and (Controllable ?a) (Hooked ?o ?p1 ?p2 ?p3 ?g) (Pose ?o ?p1) (AConf ?a ?q2) (BConf ?q1))
+    :outputs (?t)
+    :certified (and (ATraj ?t) (ArmMotion ?a ?p1 ?p2 ?q1 ?q2 ?t))
+  )
+  (:stream inverse-hookable-kinematics; KLUDGE: copy IK stream because domain does not accept disjunction
+    :inputs (?a ?r ?g1 ?o ?p1 ?p2 ?p3 ?g2)
+    :domain (and (Controllable ?a) (Pose ?o ?p1) (Grasp ?r ?g1) (Hooked ?o ?p1 ?p2 ?p3 ?g2))
+    :outputs (?q ?q2 ?t)
+    :certified (and (BConf ?q) (ATraj ?t) (AConf ?a ?q2) (Kin3 ?a ?r ?p1 ?p2 ?g2 ?q ?q2 ?t));
+  )
   (:stream plan-push-motion
     :inputs (?a ?o ?p1 ?p2 ?g ?q1 ?q2)
     :domain (and (Controllable ?a) (Alignment ?o ?p1 ?p2 ?g) (Pose ?o ?p1) (AConf ?a ?q2) (BConf ?q1))

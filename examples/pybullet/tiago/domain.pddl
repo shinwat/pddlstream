@@ -1,18 +1,24 @@
 (define (domain tiago-tamp)
   (:requirements :strips :equality)
-  (:constants @sink @stove)
+  (:constants @sink @stove @tool)
   (:predicates
     (Arm ?a)
     (Stackable ?o ?r)
+    (Graspable ?o)
+    (Alignable ?o)
+    (Hookable ?o)
     (Sink ?r)
     (Stove ?r)
+    (Tool ?r)
     (Type ?t ?b)
 
     (Pose ?o ?p)
     (Grasp ?o ?g)
     (Alignment ?o ?p1 ?p2 ?g)
+    (Hooked ?o ?p1 ?p2 ?p3 ?g);
     (Kin ?a ?o ?p ?g ?q ?t)
     (Kin2 ?a ?o ?p1 ?p2 ?g ?q1 ?q2 ?t)
+    (Kin3 ?a ?r ?p1 ?p2 ?g ?q1 ?q2 ?t);?o ?p2
     (BaseMotion ?q1 ?t ?q2)
     (ArmMotion ?a ?p1 ?p2 ?q1 ?q2 ?t)
     (Supported ?o ?p ?r)
@@ -28,6 +34,7 @@
     (AtPose ?o ?p)
     (AtGrasp ?a ?o ?g)
     (AtPush ?a ?o ?p ?g ?q)
+    (AtSweep ?a ?r ?p2 ?g ?q2)
     (HandEmpty ?a)
     (AtBConf ?q)
     (AtAConf ?a ?q)
@@ -50,6 +57,7 @@
     (PlaceCost)
     (AlignCost)
     (PushCost)
+    (HookCost)
   )
 
   (:action move_base
@@ -125,7 +133,33 @@
                  (not (AtAConf ?a ?q1))
                  (increase (total-cost) (PushCost)))
   )
-
+  (:action hook
+    :parameters (?a ?o ?r ?g0 ?p1 ?p2 ?g1 ?q0 ?q2 ?t)
+    :precondition (and (Kin3 ?a ?r ?p1 ?p2 ?g1 ?q0 ?q2 ?t)
+                       (AtPose ?o ?p1)
+                       (AtBConf ?q0)
+                       (Tool ?r)
+                       (AtGrasp ?a ?r ?g0)
+                       (not (UnsafePose ?o ?p2))
+                       (not (UnsafeATraj ?t))
+                  )
+    :effect (and (not (CanMove)) (AtAConf ?a ?q2) (AtSweep ?a ?r ?p2 ?g1 ?q2); 
+                 (increase (total-cost) (HookCost)))
+  )
+  (:action sweep
+    :parameters (?a ?o ?r ?p1 ?p2 ?g ?q0 ?q1 ?t)
+    :precondition (and (ArmMotion ?a ?p1 ?p2 ?q0 ?q1 ?t)
+                       (AtSweep ?a ?r ?p2 ?g ?q1)
+                       (AtPose ?o ?p1)
+                       (AtAConf ?a ?q1)
+                       (AtBConf ?q0)
+                       (not (UnsafeATraj ?t))
+                  )
+    :effect (and (AtPose ?o ?p2) (CanMove)
+                 (not (AtSweep ?a ?r ?p2 ?g ?q1))
+                 (not (AtAConf ?a ?q1))
+                 (increase (total-cost) (HookCost)))
+  )
   (:action clean
     :parameters (?o ?r)
     :precondition (and (Stackable ?o ?r) (Type ?r @sink) ; (Sink ?r)

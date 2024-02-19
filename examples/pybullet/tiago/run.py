@@ -7,11 +7,11 @@ from examples.pybullet.tiago.streams import get_cfree_align_pose_test, get_cfree
     get_cfree_traj_grasp_pose_test, BASE_CONSTANT, distance_fn, move_cost_fn, get_cfree_obj_approach_pose_test
 
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, apply_commands, control_commands, get_align_gen, get_arm_motion_gen, get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, get_motion_gen, get_stable_gen
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, Push, apply_commands, control_commands, get_align_gen, get_hook_gen, get_hook_ik_ir_traj_gen, get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, get_motion_gen, get_stable_gen, get_sweep_gen
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_arm_joints, get_gripper_joints, get_group_joints, \
     get_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, get_bodies, get_body_name, get_max_limit, get_pose, is_placement, disconnect, \
-    get_joint_positions, HideOutput, LockRenderer, wait_for_user
+    get_joint_positions, HideOutput, LockRenderer, wait_for_user, wait_if_gui
 
 from pddlstream.algorithms.meta import create_parser, solve
 from pddlstream.algorithms.common import SOLUTIONS
@@ -35,6 +35,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
     constant_map = {
         '@sink': 'sink',
         '@stove': 'stove',
+        '@tool': 'tool'
     }
 
     initial_bq = Conf(robot, get_group_joints(robot, 'base'), get_group_conf(robot, 'base'))
@@ -46,8 +47,10 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         Equal(('PlaceCost',), 1),
         Equal(('AlignCost',), 1),
         Equal(('PushCost',), 1),
+        Equal(('HookCost',), 1),
     ] + [('Sink', s) for s in problem.sinks] + \
            [('Stove', s) for s in problem.stoves] + \
+           [('Tool', s) for s in problem.tools] + \
            [('Connected', b, d) for b, d in problem.buttons] + \
            [('Button', b) for b, _ in problem.buttons]
     joints = get_arm_joints(robot)
@@ -56,10 +59,16 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
     init += [('Arm', arm), ('AConf', arm, conf), ('HandEmpty', arm), ('AtAConf', arm, conf)]
     init += [('Controllable', arm)]
 
+    applyAffordance = True # apply custom affordance to first block
     for body in problem.movable:
         pose = Pose(body, get_pose(body), init=True) # TODO: supported here
-        init += [(affordance, body), ('Pose', body, pose),
-                 ('AtPose', body, pose), ('Stackable', body, None)]
+        if applyAffordance:
+            init += [(affordance, body), ('Pose', body, pose),
+                    ('AtPose', body, pose), ('Stackable', body, None)]
+            applyAffordance = False
+        else:
+            init += [('Graspable', body), ('Pose', body, pose),
+                    ('AtPose', body, pose), ('Stackable', body, None)]
         for surface in problem.surfaces:
             if is_placement(body, surface):
                 init += [('Supported', body, pose, surface)]
@@ -91,6 +100,9 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-grasp': from_list_fn(get_grasp_gen(problem, collisions=collisions)),
         'sample-align': from_fn(get_align_gen(problem, collisions=collisions)),
         'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions)),
+        'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
+        'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
+        'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
         'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
@@ -108,7 +120,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False):
+def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, vision=False):
     if plan is None:
         return None
     commands = []
@@ -137,13 +149,22 @@ def post_process(problem, plan, teleport=False):
             attach = Attach(problem.robot, g, b)
             new_commands = [close_gripper, t]
         elif name == 'push':
-            a, b, p, _, g, _, _, c = args
+            a, b, _, p, g, _, _, c = args
             [t] = c.commands
             gripper_joint = get_gripper_joints(problem.robot)[0]
             position = get_max_limit(problem.robot, gripper_joint)
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
-            new_commands = [t, t.reverse(), open_gripper]
+            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, vision)
+            new_commands = [push, push.reverse(), open_gripper]
+        elif name == 'hook':
+            c = args[-1]
+            new_commands = c.commands
+        elif name == 'sweep': 
+            _, b, _, _, p, _, _, _, c = args
+            [t] = c.commands
+            sweep = Push(problem.robot, b, p, t, directory, policy, evaluate, collect)
+            new_commands = [sweep, sweep.reverse()]
         else:
             raise ValueError(name)
         print(i, name, args, new_commands)
@@ -168,6 +189,13 @@ def main(verbose=True):
     parser.add_argument('-enable', action='store_true', help='Enables rendering during planning')
     parser.add_argument('-simulate', action='store_true', help='Simulates the system')
     parser.add_argument('-f', '--affordance', default='Graspable', help='The affordance of the objects')
+    parser.add_argument('-d','--directory', type=str, default=None, help='path to save trajectory')
+    parser.add_argument('-direct', action='store_true', help='no GUI')
+    parser.add_argument('-p','--policy', type=str, default=None, help='path to the policy directory if available')
+    parser.add_argument('-e','--eval', type=str, default=None, help='path to save rollout evaluations')
+    parser.add_argument('-c','--collect', type=str, default=None, help='path to save push configurations')
+    parser.add_argument('-vision', action='store_false', help='whether to work with wrist images')
+
     args = parser.parse_args()
     print('Arguments:', args)
 
@@ -176,7 +204,7 @@ def main(verbose=True):
         raise ValueError(args.problem)
     problem_fn = problem_fn_from_name[args.problem]
 
-    connect(use_gui=True)
+    connect(use_gui=not args.direct)
     with HideOutput():
         problem = problem_fn(num=args.number)
     saver = WorldSaver()
@@ -205,7 +233,7 @@ def main(verbose=True):
     max_planner_time = 10
     effort_weight = 1e-3 if args.optimal else 1
 
-    wait_for_user()
+    wait_if_gui()
 
     with Profiler(field='tottime', num=25): # cumtime | tottime
         with LockRenderer(lock=not args.enable):
@@ -229,16 +257,16 @@ def main(verbose=True):
         return
 
     with LockRenderer(lock=not args.enable):
-        commands = post_process(problem, plan, teleport=args.teleport)
+        commands = post_process(problem, plan, teleport=args.teleport, directory=args.directory, policy=args.policy, evaluate=args.eval, collect=args.collect, vision=args.vision)
         saver.restore()
 
-    wait_for_user()
+    wait_if_gui()
     if args.simulate:
         control_commands(commands)
     else:
         time_step = None if args.teleport else 0.05
         apply_commands(State(), commands, time_step)
-    wait_for_user()
+    wait_if_gui()
     disconnect()
 
 if __name__ == '__main__':
