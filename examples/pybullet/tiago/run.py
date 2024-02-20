@@ -252,7 +252,7 @@ def main(verbose=True):
     #print(SOLUTIONS)
     print_solution(solution)
     plan, cost, evaluations = solution
-    if (plan is None) or not has_gui():
+    if (plan is None):
         disconnect()
         return
 
