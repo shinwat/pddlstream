@@ -27,7 +27,7 @@ from examples.pybullet.utils.pybullet_tools.utils import draw_base_limits, World
 
 #TODO: starting with the simpler pr2 problem
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable'):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -99,7 +99,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-pose': from_gen_fn(get_stable_gen(problem, collisions=collisions)),
         'sample-grasp': from_list_fn(get_grasp_gen(problem, collisions=collisions)),
         'sample-align': from_fn(get_align_gen(problem, collisions=collisions)),
-        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions)),
+        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions, policy_dir=policy, eval_dir=eval)),
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
@@ -120,7 +120,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, vision=False):
+def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, vision=False, bootstrap=False):
     if plan is None:
         return None
     commands = []
@@ -155,7 +155,7 @@ def post_process(problem, plan, teleport=False, directory=None, policy=None, eva
             position = get_max_limit(problem.robot, gripper_joint)
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
-            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, vision)
+            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, vision, bootstrap)
             new_commands = [push, push.reverse(), open_gripper]
         elif name == 'hook':
             c = args[-1]
@@ -194,7 +194,11 @@ def main(verbose=True):
     parser.add_argument('-p','--policy', type=str, default=None, help='path to the policy directory if available')
     parser.add_argument('-e','--eval', type=str, default=None, help='path to save rollout evaluations')
     parser.add_argument('-c','--collect', type=str, default=None, help='path to save push configurations')
-    parser.add_argument('-vision', action='store_false', help='whether to work with wrist images')
+    parser.add_argument('-vision', action='store_true', help='whether to work with wrist images')
+    parser.add_argument('-r', '--read', type=str, default=None, help='path to directory with saved object poses')
+    parser.add_argument('-z', '--zzz', default=0, type=int, help='Evaluation number')
+    parser.add_argument('-bootstrap', action='store_true', help='whether to record policy demos for bootstrap learning')
+    parser.add_argument('-q', action='store_true', help='whether to use the Q-function for sampling')
 
     args = parser.parse_args()
     print('Arguments:', args)
@@ -206,10 +210,11 @@ def main(verbose=True):
 
     connect(use_gui=not args.direct)
     with HideOutput():
-        problem = problem_fn(num=args.number)
+        problem = problem_fn(num=args.number, directory=args.read, evalNum=args.zzz)
     saver = WorldSaver()
 
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance)
+    policy = args.policy if args.q else None
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.eval)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
@@ -257,7 +262,7 @@ def main(verbose=True):
         return
 
     with LockRenderer(lock=not args.enable):
-        commands = post_process(problem, plan, teleport=args.teleport, directory=args.directory, policy=args.policy, evaluate=args.eval, collect=args.collect, vision=args.vision)
+        commands = post_process(problem, plan, teleport=args.teleport, directory=args.directory, policy=args.policy, evaluate=args.eval, collect=args.collect, vision=args.vision, bootstrap=args.bootstrap)
         saver.restore()
 
     wait_if_gui()
@@ -265,7 +270,7 @@ def main(verbose=True):
         control_commands(commands)
     else:
         time_step = None if args.teleport else 0.05
-        apply_commands(State(), commands, time_step)
+        apply_commands(State(), commands, time_step, True)
     wait_if_gui()
     disconnect()
 

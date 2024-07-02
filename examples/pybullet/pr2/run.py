@@ -6,7 +6,7 @@ from pddlstream.algorithms.meta import solve, create_parser
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf, get_ik_ir_gen, get_motion_gen, \
     get_stable_gen, get_grasp_gen, Attach, Detach, Clean, Cook, control_commands, \
     get_gripper_joints, GripperCommand, apply_commands, State
-from examples.pybullet.utils.pybullet_tools.pr2_problems import cleaning_problem, cooking_problem
+from examples.pybullet.utils.pybullet_tools.pr2_problems import PROBLEMS, cleaning_problem, cooking_problem
 from examples.pybullet.utils.pybullet_tools.pr2_utils import get_arm_joints, ARM_NAMES, get_group_joints, get_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, get_pose, is_placement, point_from_pose, \
     disconnect, get_joint_positions, enable_gravity, save_state, restore_state, HideOutput, \
@@ -81,8 +81,8 @@ def extract_point2d(v):
     raise ValueError(v.stream)
 
 def opt_move_cost_fn(t):
-    q1, q2 = t.values
-    distance = get_distance(extract_point2d(q1), extract_point2d(q2))
+    # q1, q2 = t.values
+    # distance = get_distance(extract_point2d(q1), extract_point2d(q2))
     #return BASE_CONSTANT + distance / BASE_VELOCITY
     return 1
 
@@ -221,6 +221,7 @@ def post_process(problem, plan, teleport=False):
 
 def main(partial=False, defer=False, verbose=True):
     parser = create_parser()
+    parser.add_argument('-problem', default='cooking_problem', help='The name of the problem to solve')
     parser.add_argument('-cfree', action='store_true', help='Disables collisions during planning')
     parser.add_argument('-enable', action='store_true', help='Enables rendering during planning')
     parser.add_argument('-teleport', action='store_true', help='Teleports between configurations')
@@ -228,8 +229,13 @@ def main(partial=False, defer=False, verbose=True):
     args = parser.parse_args()
     print('Arguments:', args)
 
+    problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
+    if args.problem not in problem_fn_from_name:
+        raise ValueError(args.problem)
+    problem_fn = problem_fn_from_name[args.problem]
+
     connect(use_gui=True)
-    problem_fn = cooking_problem
+    # problem_fn = cooking_problem
     # holding_problem | stacking_problem | cleaning_problem | cooking_problem
     # cleaning_button_problem | cooking_button_problem
     with HideOutput():

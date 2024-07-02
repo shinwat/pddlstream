@@ -7,7 +7,7 @@ from examples.pybullet.utils.pybullet_tools.pr2_utils import set_group_conf
 from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, Problem
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, get_group_conf, open_gripper, set_arm_conf
 from examples.pybullet.utils.pybullet_tools.utils import TABLE_URDF, get_aabb, get_bodies, get_pose, placement_on_aabb, sample_placement, pairwise_collision, \
-    add_data_path, load_pybullet, set_base_values, set_point, Point, create_box, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
+    add_data_path, load_pybullet, set_base_values, set_point, Point, create_box, set_pose, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
     RED, GREEN, BLUE, BLACK, WHITE, BROWN, TAN, GREY
 
 def sample_placements(body_surfaces, obstacles=None, min_distances={}):
@@ -29,7 +29,7 @@ def sample_placements(body_surfaces, obstacles=None, min_distances={}):
 
 #######################################################
 
-def packed(arm='middle', grasp_type='top', num=5):
+def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0):
     # TODO: packing problem where you have to place in one direction
     base_extent = 5.0
 
@@ -63,6 +63,12 @@ def packed(arm='middle', grasp_type='top', num=5):
 
     min_distances = {block: 0.05 for block in blocks}
     sample_placements(initial_surfaces, min_distances=min_distances)
+
+    if directory is not None:
+        data = np.genfromtxt(directory, delimiter=',')
+        init_pose = (data[evalNum][:3], data[evalNum][3:])
+        for block in blocks:
+            set_pose(block, init_pose)
 
     return Problem(robot=tiago, movable=blocks, arms=[], grasp_types=[grasp_type], surfaces=surfaces,
                    #goal_holding=[(arm, block) for block in blocks])
@@ -98,17 +104,16 @@ def hook(arm='middle', grasp_type='top',num=5):
     plate_z = stable_z(plate, table)
     set_point(plate, Point(z=plate_z))
     surfaces = [table, plate]
-    block  = create_box(block_width, block_width, block_height, color=RED, mass=0.01)
     hook = create_hook(color=BLUE, mass=0.05)
     placement_on_aabb(hook, get_aabb(table),((-0.25, -0.2, 0.01), unit_quat()))
-    objs = [block]
+    objs = [create_box(block_width, block_width, block_height, color=RED, mass=0.01) for _ in range(num)]
     initial_surfaces = {obj: table for obj in objs}
     min_distances = {obj: 0.05 for obj in objs}
     sample_placements(initial_surfaces, min_distances=min_distances)
 
-    return Problem(robot=tiago, movable=[block,hook], arms=[], grasp_types=[grasp_type], surfaces=surfaces,
+    return Problem(robot=tiago, movable=objs+[hook], arms=[], grasp_types=[grasp_type], surfaces=surfaces,
                    tools=[hook],
-                   goal_on=[(block, plate)], 
+                   goal_on=[(block, plate) for block in objs],
                    base_limits=base_limits)
 
 #######################################################
