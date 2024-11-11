@@ -6,7 +6,7 @@ from examples.pybullet.utils.pybullet_tools.pr2_problems import TABLE_MAX_Z, cre
 from examples.pybullet.utils.pybullet_tools.pr2_utils import set_group_conf
 from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, Problem
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, get_group_conf, open_gripper, set_arm_conf
-from examples.pybullet.utils.pybullet_tools.utils import TABLE_URDF, YELLOW, create_plate, get_aabb, get_bodies, get_pose, placement_on_aabb, sample_placement, pairwise_collision, \
+from examples.pybullet.utils.pybullet_tools.utils import TABLE_URDF, YELLOW, create_plate, get_aabb, get_bodies, get_pose, multiply, placement_on_aabb, sample_placement, pairwise_collision, \
     add_data_path, load_pybullet, set_base_values, set_dynamics, set_point, Point, create_box, set_pose, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
     RED, GREEN, BLUE, BLACK, WHITE, BROWN, TAN, GREY
 
@@ -71,9 +71,10 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
 
     if directory is not None:
         data = np.genfromtxt(directory, delimiter=',')
-        init_pose = (data[evalNum][:3], data[evalNum][3:])
+        init_pose = (data[evalNum][10:13], data[evalNum][13:17])
+        lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
         for block in blocks:
-            set_pose(block, init_pose)
+            set_pose(block, lifted_pose)
 
     return Problem(robot=tiago, movable=blocks, arms=[], grasp_types=[grasp_type], surfaces=surfaces,
                    #goal_holding=[(arm, block) for block in blocks])
@@ -96,7 +97,7 @@ def hook(arm='middle', grasp_type='top',num=5, directory=None, evalNum=0, fricti
     plate_height = 0.001
     bump_width = 0.03
     bump_height = 0.01
-    num_bumps = 30
+    num_bumps = 40
     initial_conf = get_carry_conf(grasp_type)
 
     add_data_path()
