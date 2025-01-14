@@ -52,7 +52,7 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     open_gripper(tiago)
     set_group_conf(tiago, 'base', [-1, 0, 0]) # Be careful to not set the pr2's pose
 
-    table = create_table()
+    table = create_table(mass=10)
     if friction:
         set_dynamics(table, lateralFriction=0.05) #default: 0.5
     plate = create_plate(plate_width, plate_width, plate_height, color=GREEN)

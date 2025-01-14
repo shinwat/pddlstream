@@ -27,7 +27,7 @@ from examples.pybullet.utils.pybullet_tools.utils import draw_base_limits, World
 
 #TODO: starting with the simpler pr2 problem
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None, friction=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None, friction=False, reach=None):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -101,7 +101,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, policy_dir=policy, reach_dir=reach, grid_search=True)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -118,7 +118,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, bootstrap=False, ablation=False):
+def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=None, collect=None, bootstrap=False, ablation=False):
     if plan is None:
         return None
     commands = []
@@ -198,6 +198,7 @@ def main(verbose=True):
     parser.add_argument('-q', action='store_true', help='whether to use the Q-function for sampling')
     parser.add_argument('-ablation', action='store_true', help='whether to save the original demonstrations')
     parser.add_argument('-friction', action='store_true', help='lower the table friction')
+    parser.add_argument('-w', '--reach', type=str, default=None, help='path to save reachability')
 
     args = parser.parse_args()
     print('Arguments:', args)
@@ -213,7 +214,7 @@ def main(verbose=True):
     saver = WorldSaver()
 
     policy = args.policy if args.q else None
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.eval, friction=args.friction)
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.eval, friction=args.friction, reach=args.reach)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
@@ -246,7 +247,8 @@ def main(verbose=True):
                              unit_costs=args.unit, success_cost=success_cost,
                              max_time=args.max_time, verbose=True, debug=False,
                              unit_efforts=True, effort_weight=effort_weight,
-                             search_sample_ratio=search_sample_ratio)
+                             search_sample_ratio=search_sample_ratio,
+                             visualize=False)
             saver.restore()
 
 

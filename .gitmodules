@@ -1,7 +1,7 @@
 [submodule "examples/pybullet/utils"]
 	path = examples/pybullet/utils
 	url = https://github.com/shinwat/pybullet-planning.git
-	branch = hook
+	branch = feasibility
 [submodule "downward"]
 	path = downward
 	url = https://github.com/caelan/downward.git
