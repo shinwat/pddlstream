@@ -242,7 +242,7 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
     print('Summary: {}'.format(str_from_object(summary, ndigits=3))) # TODO: return the summary
 
     write_stream_statistics(externals, verbose)
-    return store.extract_solution()
+    return store.extract_solution(), summary
 
 solve_focused = solve_abstract # TODO: deprecate solve_focused
 

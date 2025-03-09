@@ -7,7 +7,10 @@ from examples.pybullet.tiago.streams import get_cfree_align_pose_test, get_cfree
     get_cfree_traj_grasp_pose_test, BASE_CONSTANT, distance_fn, move_cost_fn, get_cfree_obj_approach_pose_test
 
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, Push, apply_commands, control_commands, get_align_gen, get_hook_gen, get_hook_ik_ir_traj_gen, get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, get_motion_gen, get_stable_gen, get_sweep_gen
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, \
+    Push, apply_commands, control_commands, get_align_gen, get_hook_gen, get_hook_ik_ir_traj_gen, \
+    get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, \
+    get_motion_gen, get_stable_gen, get_sweep_gen
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_arm_joints, get_gripper_joints, get_group_joints, \
     get_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, get_bodies, get_body_name, get_max_limit, get_pose, is_placement, disconnect, \
@@ -25,9 +28,11 @@ from pddlstream.language.stream import StreamInfo, DEBUG
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import State
 from examples.pybullet.utils.pybullet_tools.utils import draw_base_limits, WorldSaver, has_gui, str_from_object
 
-#TODO: starting with the simpler pr2 problem
+import os
+import time
+import numpy as np
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None, friction=False, reach=None):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None, friction=False, reach=None, viz=False):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -101,7 +106,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, policy_dir=policy, reach_dir=reach, grid_search=True)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, policy_dir=policy, reach_dir=reach, grid_search=viz)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -199,6 +204,9 @@ def main(verbose=True):
     parser.add_argument('-ablation', action='store_true', help='whether to save the original demonstrations')
     parser.add_argument('-friction', action='store_true', help='lower the table friction')
     parser.add_argument('-w', '--reach', type=str, default=None, help='path to save reachability')
+    parser.add_argument('-g', '--range', type=str, default=None, help='path to save reachable range')
+    parser.add_argument('-viz', action='store_true', help='visualize the feasibility map')
+    parser.add_argument('-m', '--time', type=str, default=None, help='directory to save the planning time')
 
     args = parser.parse_args()
     print('Arguments:', args)
@@ -214,7 +222,7 @@ def main(verbose=True):
     saver = WorldSaver()
 
     policy = args.policy if args.q else None
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.eval, friction=args.friction, reach=args.reach)
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.range, friction=args.friction, reach=args.reach, viz=args.viz)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
@@ -242,7 +250,7 @@ def main(verbose=True):
 
     with Profiler(field='tottime', num=25): # cumtime | tottime
         with LockRenderer(lock=not args.enable):
-            solution = solve(pddlstream_problem, algorithm=args.algorithm, stream_info=stream_info,
+            solution, summary = solve(pddlstream_problem, algorithm=args.algorithm, stream_info=stream_info,
                              planner=planner, max_planner_time=max_planner_time,
                              unit_costs=args.unit, success_cost=success_cost,
                              max_time=args.max_time, verbose=True, debug=False,
@@ -251,6 +259,24 @@ def main(verbose=True):
                              visualize=False)
             saver.restore()
 
+    if args.time is not None:
+        time_dir = args.time
+        try:
+            f = open("heuristic.txt", "r")
+            heuristic_failed = f.read() == "failed"
+        except Exception:
+            heuristic_failed = False
+        summary['fallback'] = heuristic_failed
+        # clear the file
+        with open("heuristic.txt", "w") as f:
+            f.write("")
+        t1, t2 = str(time.time()).split(".")
+        eval_path = os.path.join(time_dir, "time_{}_{}.npz".format(t1, t2))
+        np.savez(
+            eval_path,
+            results=summary
+        )
+        return
 
     cost_over_time = [(s.cost, s.time) for s in SOLUTIONS]
     for i, (cost, runtime) in enumerate(cost_over_time):
