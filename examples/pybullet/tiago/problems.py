@@ -39,7 +39,6 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     block_area = block_width*block_width
 
     plate_width = 0.27
-    print('Width:', plate_width)
     plate_width = min(plate_width, 0.6)
     plate_height = 0.001
 
@@ -52,7 +51,7 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     open_gripper(tiago)
     set_group_conf(tiago, 'base', [-1, 0, 0]) # Be careful to not set the pr2's pose
 
-    table = create_table(mass=10)
+    table = create_table(mass=0)
     if friction:
         set_dynamics(table, lateralFriction=0.05) #default: 0.5
     plate = create_plate(plate_width, plate_width, plate_height, color=GREEN)
@@ -71,10 +70,19 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
 
     if directory is not None:
         data = np.genfromtxt(directory, delimiter=',')
+        torso_state = data[evalNum][0]
+        arm_state = data[evalNum][1:8]
+        gripper_state = data[evalNum][8:10]
+        base_state = data[evalNum][17:20]
+        goal_state = data[evalNum][20:]
         init_pose = (data[evalNum][10:13], data[evalNum][13:17])
         lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
         for block in blocks:
             set_pose(block, lifted_pose)
+        # set everything else
+        set_group_conf(tiago, 'torso', torso_state) # not necessary
+        set_group_conf(tiago, 'base', base_state)
+        set_arm_conf(tiago, arm_state)
 
     return Problem(robot=tiago, movable=blocks, arms=[], grasp_types=[grasp_type], surfaces=surfaces,
                    #goal_holding=[(arm, block) for block in blocks])
@@ -92,7 +100,6 @@ def hook(arm='middle', grasp_type='top',num=5, directory=None, evalNum=0, fricti
     block_area = block_width*block_width
 
     plate_width = 0.27
-    print('Width:', plate_width)
     plate_width = min(plate_width, 0.6)
     plate_height = 0.001
     bump_width = 0.03

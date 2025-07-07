@@ -32,7 +32,7 @@ import os
 import time
 import numpy as np
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', policy=None, eval=None, friction=False, reach=None, viz=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', value_function=None, eval=None, friction=False, reach=None, viz=False):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -102,11 +102,11 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-pose': from_gen_fn(get_stable_gen(problem, collisions=collisions)),
         'sample-grasp': from_list_fn(get_grasp_gen(problem, collisions=collisions)),
         'sample-align': from_fn(get_align_gen(problem, collisions=collisions)),
-        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions, policy_dir=policy, eval_dir=eval, friction=friction)),
+        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions, value_function=value_function, eval_dir=eval, friction=friction)),
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, policy_dir=policy, reach_dir=reach, grid_search=viz)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, value_function=value_function, reach_dir=reach, grid_search=viz)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -123,7 +123,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=None, collect=None, bootstrap=False, ablation=False):
+def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None):
     if plan is None:
         return None
     commands = []
@@ -158,8 +158,8 @@ def post_process(problem, plan, teleport=False, directory=None, policy=None, eva
             position = get_max_limit(problem.robot, gripper_joint)
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
-            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, bootstrap, ablation)
-            new_commands = [push, push.reverse(), open_gripper]
+            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, bootstrap, ablation, buffer, stats)
+            new_commands = [push, push.reverse(), open_gripper] if policy is None else [push]            
         elif name == 'hook':
             c = args[-1]
             new_commands = c.commands
@@ -221,8 +221,8 @@ def main(verbose=True):
         problem = problem_fn(num=args.number, directory=args.read, evalNum=args.zzz, friction=args.friction)
     saver = WorldSaver()
 
-    policy = args.policy if args.q else None
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, policy=policy, eval=args.range, friction=args.friction, reach=args.reach, viz=args.viz)
+    value_function = args.policy if args.q else None
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, value_function=value_function, eval=args.range, friction=args.friction, reach=args.reach, viz=args.viz)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
