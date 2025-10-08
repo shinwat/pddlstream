@@ -4,11 +4,11 @@ import numpy as np
 from examples.pybullet.tiago.run import pddlstream_from_problem, post_process
 from examples.pybullet.tiago.problems import PROBLEMS
 from examples.pybullet.tiago.streams import BASE_CONSTANT
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Pose, Push, apply_commands, control_commands
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import Pose, Push, apply_commands, control_commands, get_goal_wrt_base
 from examples.pybullet.utils.pybullet_tools.tiago_utils import close_gripper, set_arm_conf, set_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
     setTimeout, unit_quat, wait_if_gui
-from examples.pybullet.utils.pybullet_tools.pr2_primitives import State
+from examples.pybullet.utils.pybullet_tools.pr2_primitives import State, Trajectory
 from examples.pybullet.utils.pybullet_tools.utils import WorldSaver
 from pddlstream.algorithms.meta import solve
 from pddlstream.utils import INF, Profiler
@@ -28,10 +28,11 @@ def sample_trajectory(
         model=None,
         eval=False,
         bootstrap=False,
-        value_function=False,
+        value_function=None,
         buffer=None,
         seed=None,
         stats=None,
+        grid_search=True,
         directory=None, 
         collect=None,
         config_path=None,
@@ -66,7 +67,7 @@ def sample_trajectory(
 
     saver = WorldSaver()
 
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not cfree, teleport=teleport, affordance=affordance, value_function=value_function, viz=not direct)
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not cfree, teleport=teleport, affordance=affordance, value_function=value_function, stats=stats, grid_search=grid_search)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
@@ -320,3 +321,116 @@ def sample_deterministic_trajectory(
     success = push.control()
     disconnect()
     return success
+
+def create_problem_and_solve(
+        block_pose,
+        problem='push',
+        cfree=False,
+        max_time=30,
+        teleport=False,
+        enable=False,
+        simulate=True,
+        direct=True,
+        model=None,
+        bootstrap=False,
+        value_function=None,
+        buffer=None,
+        stats=None,
+        grid_search=True,
+):
+    # pick the right problem
+    problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
+    if problem not in problem_fn_from_name:
+        raise ValueError(problem)
+    problem_fn = problem_fn_from_name[problem]
+
+    # connect to bullet
+    connect(use_gui=not direct)
+    with HideOutput():
+        problem = problem_fn(block_pose)
+
+    saver = WorldSaver()
+
+    pddlstream_problem = pddlstream_from_problem(
+        problem, 
+        collisions=not cfree, 
+        teleport=teleport, 
+        affordance='Alignable', 
+        value_function=value_function, 
+        stats=stats, 
+        grid_search=grid_search
+    )
+    
+    stream_info = {
+        'inverse-kinematics': StreamInfo(),
+        'plan-base-motion': StreamInfo(overhead=1e1),
+
+        'test-cfree-pose-pose': StreamInfo(p_success=1e-3, verbose=False),
+        'test-cfree-approach-pose': StreamInfo(p_success=1e-2, verbose=False),
+        'test-cfree-traj-pose': StreamInfo(p_success=1e-1, verbose=False),
+
+        'Distance': FunctionInfo(p_success=0.99, opt_fn=lambda q1, q2: BASE_CONSTANT),
+    }
+
+    success_cost = INF
+    planner = 'ff-wastar3'
+    search_sample_ratio = 2
+    max_planner_time = 10
+    effort_weight = 1
+
+    wait_if_gui()
+
+    with Profiler(field='tottime', num=25): # cumtime | tottime
+        with LockRenderer(lock=not enable):
+            with HideOutput():
+                solution, _ = solve(pddlstream_problem, algorithm='adaptive', stream_info=stream_info,
+                                planner=planner, max_planner_time=max_planner_time,
+                                unit_costs=False, success_cost=success_cost,
+                                max_time=max_time, verbose=False, debug=False,
+                                unit_efforts=True, effort_weight=effort_weight,
+                                search_sample_ratio=search_sample_ratio,
+                                visualize=False)
+                saver.restore()
+
+    plan, _, _ = solution
+    if (plan is None):
+        disconnect()
+        return
+
+    with LockRenderer(lock=not enable):
+        commands = post_process(
+            problem, 
+            plan,
+            teleport=teleport, 
+            directory=None, 
+            policy=model, 
+            evaluate=False, 
+            collect=None, 
+            bootstrap=bootstrap,
+            ablation=False,
+            buffer=buffer,
+            stats=stats,
+        )
+        saver.restore()
+
+    # need to simulate the commands so that robot pose can be recovered
+    if simulate:
+        control_commands(commands)
+    else:
+        time_step = None if teleport else 0.05
+        apply_commands(State(), commands[:-3], time_step, True) #KLUDGE: push fails when apply
+    
+    targets = dict()
+    for command in commands:
+        if isinstance(command, Trajectory):
+            end_conf = command.path[-1]
+            if len(end_conf.joints) == 3:
+                targets['base_pose'] = end_conf.values
+            else:
+                targets['joint_pose'] = end_conf.values
+        if isinstance(command, Push):
+            goal = get_goal_wrt_base(command.robot, command.pose.value)
+            targets['goal_pos'] = goal # array
+            break
+    
+    return targets

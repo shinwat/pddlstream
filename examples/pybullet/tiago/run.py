@@ -32,7 +32,7 @@ import os
 import time
 import numpy as np
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', value_function=None, eval=None, friction=False, reach=None, viz=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', value_function=None, stats=None, eval=None, friction=False, reach=None, grid_search=False):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -106,7 +106,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, value_function=value_function, reach_dir=reach, grid_search=viz)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, value_function=value_function, stats=stats, reach_dir=reach, grid_search=grid_search)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -222,7 +222,7 @@ def main(verbose=True):
     saver = WorldSaver()
 
     value_function = args.policy if args.q else None
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, value_function=value_function, eval=args.range, friction=args.friction, reach=args.reach, viz=args.viz)
+    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, value_function=value_function, eval=args.range, friction=args.friction, reach=args.reach, grid_search=args.viz)
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),

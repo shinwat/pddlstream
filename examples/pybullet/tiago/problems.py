@@ -7,8 +7,8 @@ from examples.pybullet.utils.pybullet_tools.pr2_utils import set_group_conf
 from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, Problem
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, get_group_conf, open_gripper, set_arm_conf
 from examples.pybullet.utils.pybullet_tools.utils import TABLE_URDF, YELLOW, create_plate, get_aabb, get_bodies, get_pose, multiply, placement_on_aabb, sample_placement, pairwise_collision, \
-    add_data_path, load_pybullet, set_base_values, set_dynamics, set_point, Point, create_box, set_pose, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
-    RED, GREEN, BLUE, BLACK, WHITE, BROWN, TAN, GREY
+    add_data_path, load_pybullet, set_base_values, set_dynamics, set_point, Point, Pose, create_box, set_pose, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
+    RED, GREEN, BLUE, BLACK, WHITE, BROWN, TAN, GREY, pose_from_pose2d
 
 def sample_placements(body_surfaces, obstacles=None, min_distances={}):
     if obstacles is None:
@@ -142,9 +142,44 @@ def hook(arm='middle', grasp_type='top',num=5, directory=None, evalNum=0, fricti
                    goal_on=[(block, plate) for block in objs],
                    base_limits=base_limits)
 
+def push(init_pose):
+    base_extent = 5.0
+
+    base_limits = (-base_extent/2.*np.ones(2), base_extent/2.*np.ones(2))
+    block_width = 0.07
+    block_height = 0.1
+    block_area = block_width*block_width
+
+    plate_width = 0.27
+    plate_width = min(plate_width, 0.6)
+    plate_height = 0.001
+
+    initial_conf = get_carry_conf('top')
+
+    add_data_path()
+    floor = load_pybullet("plane.urdf")
+    tiago = create_tiago()
+    set_arm_conf(tiago, initial_conf)
+    open_gripper(tiago)
+    set_group_conf(tiago, 'base', [-1, 0, 0])
+
+    table = create_table(mass=0)
+    plate = create_plate(plate_width, plate_width, plate_height, color=GREEN)
+    plate_z = stable_z(plate, table)
+    set_point(plate, Point(z=plate_z))
+    surfaces = [table, plate]
+
+    block = create_box(block_width, block_width, block_height, color=BLUE, mass=0.05)
+
+    pose_on_table = pose_from_pose2d(init_pose, stable_z(block, table))
+    set_pose(block, pose_on_table)
+
+    return Problem(robot=tiago, movable=[block], arms=[], grasp_types=['top'], surfaces=surfaces,
+                   goal_on=[(block, plate)], base_limits=base_limits)
 #######################################################
 
 PROBLEMS = [
     packed,
-    hook
+    hook,
+    push
 ]
