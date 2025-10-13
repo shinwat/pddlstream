@@ -4,7 +4,8 @@ import numpy as np
 from examples.pybullet.tiago.run import pddlstream_from_problem, post_process
 from examples.pybullet.tiago.problems import PROBLEMS
 from examples.pybullet.tiago.streams import BASE_CONSTANT
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Pose, Push, apply_commands, control_commands, get_goal_wrt_base
+from examples.pybullet.utils.pybullet_tools.ikfast.tiago.ik import get_tool_pose_wrt_base
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import GripperCommand, Pose, Push, apply_commands, control_commands, get_goal_wrt_base
 from examples.pybullet.utils.pybullet_tools.tiago_utils import close_gripper, set_arm_conf, set_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
     setTimeout, unit_quat, wait_if_gui
@@ -426,8 +427,8 @@ def create_problem_and_solve(
             end_conf = command.path[-1]
             if len(end_conf.joints) == 3:
                 targets['base_pose'] = end_conf.values
-            else:
-                targets['joint_pose'] = end_conf.values
+        if isinstance(command, GripperCommand):
+                targets['gripper_pose'] = get_tool_pose_wrt_base(command.robot)
         if isinstance(command, Push):
             goal = get_goal_wrt_base(command.robot, command.pose.value)
             targets['goal_pos'] = goal # array
