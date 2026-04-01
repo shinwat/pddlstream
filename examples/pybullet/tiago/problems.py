@@ -2,13 +2,11 @@ from __future__ import print_function
 
 import numpy as np
 
-from examples.pybullet.utils.pybullet_tools.pr2_problems import TABLE_MAX_Z, create_floor, create_kitchen, create_table
-from examples.pybullet.utils.pybullet_tools.pr2_utils import set_group_conf
-from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, Problem
-from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, get_group_conf, open_gripper, set_arm_conf
-from examples.pybullet.utils.pybullet_tools.utils import TABLE_URDF, YELLOW, create_plate, get_aabb, get_bodies, get_pose, multiply, placement_on_aabb, sample_placement, pairwise_collision, \
-    add_data_path, load_pybullet, set_base_values, set_dynamics, set_point, Point, Pose, create_box, set_pose, stable_z, joint_from_name, get_point, unit_quat, wait_for_user,\
-    RED, GREEN, BLUE, BLACK, WHITE, BROWN, TAN, GREY, pose_from_pose2d
+from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, create_plate, create_table, Problem
+from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, set_group_conf, open_gripper, set_arm_conf
+from examples.pybullet.utils.pybullet_tools.utils import get_aabb, get_bodies, placement_on_aabb, sample_placement, pairwise_collision, \
+    add_data_path, load_pybullet, set_dynamics, set_point, Point, create_box, set_pose, stable_z, unit_quat, \
+    GREEN, BLUE, BROWN, YELLOW, pose_from_pose2d
 
 def sample_placements(body_surfaces, obstacles=None, min_distances={}):
     if obstacles is None:
@@ -27,6 +25,12 @@ def sample_placements(body_surfaces, obstacles=None, min_distances={}):
                 break
     return True
 
+def get_stable_pose(init_pose, block, table):
+    z = stable_z(block, table)
+    point, quat = init_pose
+    x, y, _ = point
+    return (np.array((x, y, z)), np.array(quat))
+
 #######################################################
 
 def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, friction=False):
@@ -34,9 +38,9 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     base_extent = 5.0
 
     base_limits = (-base_extent/2.*np.ones(2), base_extent/2.*np.ones(2))
-    block_width = 0.07
+    block_width = 0.1
+    plate_radius = 0.07
     block_height = 0.1
-    block_area = block_width*block_width
 
     plate_width = 0.27
     plate_width = min(plate_width, 0.6)
@@ -49,12 +53,12 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     tiago = create_tiago()
     set_arm_conf(tiago, initial_conf)
     open_gripper(tiago)
-    set_group_conf(tiago, 'base', [-1, 0, 0]) # Be careful to not set the pr2's pose
-
-    table = create_table(mass=0)
+    set_group_conf(tiago, 'base', [-1, 0, 0])
+    # S: 30 x 45, M: 40 x 60, L: 45 x 90
+    table = create_table(width=0.4, length=0.6, height=0.37, thickness=0.02, radius=0.07, mass=10)
     if friction:
         set_dynamics(table, lateralFriction=0.05) #default: 0.5
-    plate = create_plate(plate_width, plate_width, plate_height, color=GREEN)
+    plate = create_plate(plate_radius, plate_height, color=GREEN)
     plate_z = stable_z(plate, table)
     set_point(plate, Point(z=plate_z))
     surfaces = [table, plate]
@@ -76,8 +80,8 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
         base_state = data[evalNum][17:20]
         goal_state = data[evalNum][20:]
         init_pose = (data[evalNum][10:13], data[evalNum][13:17])
-        lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
         for block in blocks:
+            lifted_pose = get_stable_pose(init_pose, block, table)
             set_pose(block, lifted_pose)
         # set everything else
         set_group_conf(tiago, 'torso', torso_state) # not necessary
@@ -97,7 +101,6 @@ def hook(arm='middle', grasp_type='top',num=5, directory=None, evalNum=0, fricti
     base_limits = (-base_extent/2.*np.ones(2), base_extent/2.*np.ones(2))
     block_width = 0.07
     block_height = 0.1
-    block_area = block_width*block_width
 
     plate_width = 0.27
     plate_width = min(plate_width, 0.6)
@@ -148,7 +151,6 @@ def push(init_pose):
     base_limits = (-base_extent/2.*np.ones(2), base_extent/2.*np.ones(2))
     block_width = 0.07
     block_height = 0.1
-    block_area = block_width*block_width
 
     plate_width = 0.27
     plate_width = min(plate_width, 0.6)

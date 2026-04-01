@@ -56,10 +56,10 @@ def load_data(pddl_name):
     filename = get_data_path(pddl_name)
     if not os.path.exists(filename):
         return {}
-    #try:
-    data = read_pickle(filename) # TODO: try/except
-    #except pickle.UnpicklingError:
-    #return {}
+    try:
+        data = read_pickle(filename)
+    except (pickle.UnpicklingError, EOFError):
+        return {}
     #print('Loaded:', filename)
     return data
 

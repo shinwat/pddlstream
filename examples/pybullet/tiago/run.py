@@ -2,37 +2,35 @@
 
 from __future__ import print_function
 from examples.pybullet.tiago.problems import PROBLEMS
-
 from examples.pybullet.tiago.streams import get_cfree_align_pose_test, get_cfree_approach_pose_test, get_cfree_pose_pose_test, get_cfree_traj_pose_test, \
-    get_cfree_traj_grasp_pose_test, BASE_CONSTANT, distance_fn, move_cost_fn, get_cfree_obj_approach_pose_test
+    BASE_CONSTANT, distance_fn
 
-from examples.pybullet.utils.pybullet_tools.pr2_primitives import Pose, Conf
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import Attach, Detach, GripperCommand, \
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import Pose, Conf, Attach, Detach, GripperCommand, \
     Push, apply_commands, control_commands, get_align_gen, get_hook_gen, get_hook_ik_ir_traj_gen, \
-    get_ik_ir_traj_gen, get_ik_ir_only_gen, get_push_gen, get_grasp_gen, get_ik_fn, get_ik_ir_gen, \
+    get_ik_ir_traj_gen, get_push_gen, get_grasp_gen, get_ik_ir_gen, \
     get_motion_gen, get_stable_gen, get_sweep_gen
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_arm_joints, get_gripper_joints, get_group_joints, \
     get_group_conf
-from examples.pybullet.utils.pybullet_tools.utils import connect, get_bodies, get_body_name, get_max_limit, get_pose, is_placement, disconnect, \
-    get_joint_positions, HideOutput, LockRenderer, wait_for_user, wait_if_gui
+from examples.pybullet.utils.pybullet_tools.utils import connect, get_max_limit, get_pose, is_placement, disconnect, \
+    get_joint_positions, HideOutput, LockRenderer, wait_if_gui
 
 from pddlstream.algorithms.meta import create_parser, solve
 from pddlstream.algorithms.common import SOLUTIONS
 from pddlstream.language.generator import from_gen_fn, from_list_fn, from_fn, from_test
-from pddlstream.language.constants import AND, Equal, And, print_solution, Exists, get_args, is_parameter, \
+from pddlstream.language.constants import Equal, And, print_solution, Exists, get_args, is_parameter, \
     get_parameter_name, PDDLProblem
 from pddlstream.utils import read, INF, get_file_path, Profiler
 from pddlstream.language.function import FunctionInfo
-from pddlstream.language.stream import StreamInfo, DEBUG
+from pddlstream.language.stream import StreamInfo
 
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import State
-from examples.pybullet.utils.pybullet_tools.utils import draw_base_limits, WorldSaver, has_gui, str_from_object
+from examples.pybullet.utils.pybullet_tools.utils import WorldSaver, str_from_object
 
 import os
 import time
 import numpy as np
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', value_function=None, stats=None, eval=None, friction=False, reach=None, grid_search=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', value_function=None, stats=None, eval=None, friction=False, reach=None, grid_search=False, viz=False, ignore_traj=False):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -102,11 +100,11 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-pose': from_gen_fn(get_stable_gen(problem, collisions=collisions)),
         'sample-grasp': from_list_fn(get_grasp_gen(problem, collisions=collisions)),
         'sample-align': from_fn(get_align_gen(problem, collisions=collisions)),
-        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions, value_function=value_function, eval_dir=eval, friction=friction)),
+        'plan-push-motion': from_fn(get_push_gen(problem, collisions=collisions, ignore_traj=ignore_traj, eval_dir=eval, friction=friction)),
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, value_function=value_function, stats=stats, reach_dir=reach, grid_search=grid_search)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, value_function=value_function, stats=stats, reach_dir=reach, grid_search=grid_search, viz=viz)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -123,7 +121,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None):
+def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None, dense=False, jammed=False):
     if plan is None:
         return None
     commands = []
@@ -158,8 +156,8 @@ def post_process(problem, plan, teleport=False, directory=None, policy=None, eva
             position = get_max_limit(problem.robot, gripper_joint)
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
-            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, bootstrap, ablation, buffer, stats)
-            new_commands = [push, push.reverse(), open_gripper] if policy is None else [push]            
+            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, bootstrap, ablation, buffer, stats, dense=dense, jammed=jammed)
+            new_commands = [open_gripper, push, push.reverse()] if policy is None else [open_gripper, push]            
         elif name == 'hook':
             c = args[-1]
             new_commands = c.commands
@@ -221,8 +219,18 @@ def main(verbose=True):
         problem = problem_fn(num=args.number, directory=args.read, evalNum=args.zzz, friction=args.friction)
     saver = WorldSaver()
 
-    value_function = args.policy if args.q else None
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not args.cfree, teleport=args.teleport, affordance=args.affordance, value_function=value_function, eval=args.range, friction=args.friction, reach=args.reach, grid_search=args.viz)
+    pddlstream_problem = pddlstream_from_problem(
+        problem, 
+        collisions=not args.cfree, 
+        teleport=args.teleport, 
+        affordance=args.affordance, 
+        value_function=args.policy if args.q else None, 
+        eval=args.range, 
+        friction=args.friction, 
+        reach=args.reach, 
+        grid_search=args.viz, 
+        ignore_traj=args.policy is not None
+    )
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),

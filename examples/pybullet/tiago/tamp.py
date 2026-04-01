@@ -2,11 +2,11 @@
 
 import numpy as np
 from examples.pybullet.tiago.run import pddlstream_from_problem, post_process
-from examples.pybullet.tiago.problems import PROBLEMS
+from examples.pybullet.tiago.problems import PROBLEMS, get_stable_pose
 from examples.pybullet.tiago.streams import BASE_CONSTANT
 from examples.pybullet.utils.pybullet_tools.ikfast.tiago.ik import get_tool_pose_wrt_base
 from examples.pybullet.utils.pybullet_tools.tiago_primitives import GripperCommand, Pose, Push, apply_commands, control_commands, get_goal_wrt_base
-from examples.pybullet.utils.pybullet_tools.tiago_utils import close_gripper, set_arm_conf, set_group_conf
+from examples.pybullet.utils.pybullet_tools.tiago_utils import open_gripper, set_arm_conf, set_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
     setTimeout, unit_quat, wait_if_gui
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import State, Trajectory
@@ -20,11 +20,11 @@ def sample_trajectory(
         problem='packed',
         number=1,
         cfree=False,
-        max_time=600, #
+        max_time=60,
         teleport=False,
         enable=False,
         simulate=True,
-        affordance='Graspable',
+        affordance='Alignable',
         direct=False,
         model=None,
         eval=False,
@@ -37,6 +37,9 @@ def sample_trajectory(
         directory=None, 
         collect=None,
         config_path=None,
+        viz=False,
+        dense=False,
+        jammed=False,
 ):
     set_numpy_seed(seed)
     problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
@@ -46,6 +49,10 @@ def sample_trajectory(
 
     # reset heuristic file
     with open("heuristic.txt", "w") as f:
+        f.write("")
+    with open("attempts.txt", "w") as f:
+        f.write("0")
+    with open("learned_base_values.txt", "w") as f:
         f.write("")
 
     # try to disconnect first
@@ -62,13 +69,29 @@ def sample_trajectory(
     if config_path is not None:
         data = np.load(config_path, allow_pickle=True).tolist()
         init_pose = (data[10:13], data[13:17])
-        lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
+        if init_pose[0][-1] < 0.1:
+            print("block on the floor.")
+            disconnect()
+            return None
+        # KLUDGE: need to lift block
+        lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose)
         for block in problem.movable:
+            lifted_pose = get_stable_pose(init_pose, block, problem.surfaces[0])
             set_pose(block, lifted_pose)
 
     saver = WorldSaver()
 
-    pddlstream_problem = pddlstream_from_problem(problem, collisions=not cfree, teleport=teleport, affordance=affordance, value_function=value_function, stats=stats, grid_search=grid_search)
+    pddlstream_problem = pddlstream_from_problem(
+        problem, 
+        collisions=not cfree, 
+        teleport=teleport, 
+        affordance=affordance, 
+        value_function=value_function, 
+        stats=stats, 
+        grid_search=grid_search, 
+        viz=viz, 
+        ignore_traj=False
+    )
     stream_info = {
         'inverse-kinematics': StreamInfo(),
         'plan-base-motion': StreamInfo(overhead=1e1),
@@ -118,6 +141,8 @@ def sample_trajectory(
             ablation=False,
             buffer=buffer,
             stats=stats,
+            dense=dense,
+            jammed=jammed,
         )
         saver.restore()
 
@@ -131,6 +156,10 @@ def sample_trajectory(
 
     # reset heuristic file
     with open("heuristic.txt", "w") as f:
+        f.write("")
+    with open("attempts.txt", "w") as f:
+        f.write("0")
+    with open("learned_base_values.txt", "w") as f:
         f.write("")
 
     wait_if_gui()
@@ -146,11 +175,40 @@ def sample_trajectory(
 def evaluate_policy(
         config_path: str,
         policy,
-        directory=None,
         problem: str = 'packed',
         number: int = 1,
         direct: bool = True,
         stats=None,
+        jammed=False,
+):
+    try:
+        problem, goal_state = setup_pybullet_env(config_path, problem, number, direct)
+    except:
+        disconnect()
+        return None
+    wait_if_gui()
+    push = Push(
+        robot=problem.robot, 
+        body=problem.movable[0], 
+        pose=Pose(problem.movable[0], (goal_state, unit_quat())), 
+        trajectory=None, 
+        policy=policy, 
+        evaluate=True, 
+        collect_dir=None, 
+        bootstrap=True,
+        ablation=False,
+        stats=stats,
+        jammed=jammed,
+    )
+    success = push.control()
+    disconnect()
+    return success
+
+def setup_pybullet_env(
+        config_path: str, 
+        problem: str,
+        number: int = 1,
+        direct: bool = True,
 ):
     problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
     if problem not in problem_fn_from_name:
@@ -169,34 +227,21 @@ def evaluate_policy(
     base_state = data[17:20]
     goal_state = data[20:]
     init_pose = (data[10:13], data[13:17])
+    if init_pose[0][-1] < 0.1:
+        print("block on the floor.")
+        return
     lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
     for block in problem.movable:
         set_pose(block, lifted_pose)
     set_group_conf(problem.robot, 'torso', [torso_state]) # not necessary
     set_group_conf(problem.robot, 'base', base_state)
     set_arm_conf(problem.robot, arm_state)
-    close_gripper(problem.robot)
+    open_gripper(problem.robot)
 
     # directly run policy
     disable_real_time()
     enable_gravity()
-    push = Push(
-        robot=problem.robot, 
-        body=problem.movable[0], 
-        pose=Pose(problem.movable[0], (goal_state, unit_quat())), 
-        trajectory=None, 
-        directory=directory, 
-        policy=policy, 
-        evaluate='True', 
-        collect_dir=None, 
-        bootstrap=True,
-        ablation=False,
-        buffer=None,
-        stats=stats,
-    )
-    success = push.control()
-    disconnect()
-    return success
+    return problem, goal_state
 
 def train_policy(
         config_path: str,
@@ -206,35 +251,14 @@ def train_policy(
         number: int = 1,
         direct: bool = True,
         stats=None,
+        dense=False,
+        jammed=False,
 ):
-    problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
-    if problem not in problem_fn_from_name:
-        raise ValueError(problem)
-    problem_fn = problem_fn_from_name[problem]
-
-    connect(use_gui=not direct)
-    with HideOutput():
-        problem = problem_fn(num=number)
-    
-    # set up almost solved environment
-    data = np.load(config_path, allow_pickle=True).tolist()
-    torso_state = data[0]
-    arm_state = data[1:8]
-    gripper_state = data[8:10]
-    base_state = data[17:20]
-    goal_state = data[20:]
-    init_pose = (data[10:13], data[13:17])
-    lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
-    for block in problem.movable:
-        set_pose(block, lifted_pose)
-    set_group_conf(problem.robot, 'torso', [torso_state]) # not necessary
-    set_group_conf(problem.robot, 'base', base_state)
-    set_arm_conf(problem.robot, arm_state)
-    close_gripper(problem.robot)
-
-    # directly run policy
-    disable_real_time()
-    enable_gravity()
+    try:
+        problem, goal_state = setup_pybullet_env(config_path, problem, number, direct)
+    except:
+        disconnect()
+        return None
     push = Push(
         robot=problem.robot, 
         body=problem.movable[0], 
@@ -242,17 +266,18 @@ def train_policy(
         trajectory=None, 
         directory=None, 
         policy=policy, 
-        evaluate=None, 
+        evaluate=False, 
         collect_dir=None, 
         bootstrap=True,
         ablation=False,
         buffer=buffer,
         stats=stats,
+        dense=dense,
+        jammed=jammed,
     )
-    # directory=directory, 
-    success = push.control()
+    logs = push.control()
     disconnect()
-    return success
+    return logs
 
 def sample_deterministic_trajectory(
         eval_path: str,
@@ -275,34 +300,11 @@ def sample_deterministic_trajectory(
         stats=None,
         directory=None
 ):
-    problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
-    if problem not in problem_fn_from_name:
-        raise ValueError(problem)
-    problem_fn = problem_fn_from_name[problem]
-
-    connect(use_gui=not direct)
-    with HideOutput():
-        problem = problem_fn(num=number)
-    
-    # set up almost solved environment
-    data = np.load(eval_path, allow_pickle=True).tolist()
-    torso_state = data[0]
-    arm_state = data[1:8]
-    gripper_state = data[8:10]
-    base_state = data[17:20]
-    goal_state = data[20:]
-    init_pose = (data[10:13], data[13:17])
-    lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose) # need to lift block
-    for block in problem.movable:
-        set_pose(block, lifted_pose)
-    set_group_conf(problem.robot, 'torso', [torso_state]) # not necessary
-    set_group_conf(problem.robot, 'base', base_state)
-    set_arm_conf(problem.robot, arm_state)
-    close_gripper(problem.robot)
-
-    # directly run policy
-    disable_real_time()
-    enable_gravity()
+    try:
+        problem, goal_state = setup_pybullet_env(eval_path, problem, number, direct)
+    except:
+        disconnect()
+        return None
     push = Push(
         robot=problem.robot, 
         body=problem.movable[0], 
@@ -310,7 +312,7 @@ def sample_deterministic_trajectory(
         trajectory=None, 
         directory=None, 
         policy=None, 
-        evaluate=None, 
+        evaluate=False, 
         collect_dir=None, 
         bootstrap=False,
         ablation=False,
@@ -359,7 +361,8 @@ def create_problem_and_solve(
         affordance='Alignable', 
         value_function=value_function, 
         stats=stats, 
-        grid_search=grid_search
+        grid_search=grid_search,
+        ignore_traj=False
     )
     
     stream_info = {
