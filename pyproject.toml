@@ -1,0 +1,11 @@
+[project]
+name = "tiago"
+version = "0.0.1"
+description = "A package for running pddlstream on tiago in pybullet"
+
+[build-system]
+requires = ["setuptools >= 58.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
