@@ -103,7 +103,7 @@ def sample_trajectory(
     max_planner_time = 10
     effort_weight = 1
 
-    # set up files
+    # set up temporary folder
     ensure_dir(TEMP_SKILLS_DIR)
     with open(os.path.join(TEMP_SKILLS_DIR,"heuristic.txt"), "w") as f:
         f.write("")
@@ -130,9 +130,7 @@ def sample_trajectory(
 
     plan, _, _ = solution
 
-    # reset files
-    for filename in os.listdir(TEMP_SKILLS_DIR):
-        safe_remove(os.path.join(TEMP_SKILLS_DIR, filename))
+    # remove temporary folders
     safe_rm_dir(TEMP_SKILLS_DIR)
     safe_rm_dir(TEMP_DIR)
 
