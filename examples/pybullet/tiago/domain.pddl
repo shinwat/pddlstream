@@ -3,6 +3,7 @@
   (:constants @sink @stove @tool)
   (:predicates
     (Arm ?a)
+    (Controllable ?a)
     (Stackable ?o ?r)
     (Graspable ?o)
     (Alignable ?o)
@@ -38,6 +39,8 @@
     (HandEmpty ?a)
     (AtBConf ?q)
     (AtAConf ?a ?q)
+    (BConf ?q)
+    (AConf ?a ?q)
     (CanMove)
     (Cleaned ?o)
     (Cooked ?o)

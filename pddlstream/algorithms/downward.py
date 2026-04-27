@@ -65,7 +65,7 @@ from pddl_parser.parsing_functions import parse_domain_pddl, parse_task_pddl, \
     parse_condition, check_for_duplicates
 sys.argv = original_argv
 
-TEMP_DIR = 'temp/'
+TEMP_DIR = 'temp' + str(time()%1)[2:10] + '/'
 TRANSLATE_OUTPUT = 'output.sas'
 SEARCH_OUTPUT = 'sas_plan'
 SEARCH_COMMAND = 'downward --internal-plan-file {} {} < {}'

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import numpy as np
 from examples.pybullet.tiago.run import pddlstream_from_problem, post_process
 from examples.pybullet.tiago.problems import PROBLEMS, get_stable_pose
@@ -8,11 +9,12 @@ from examples.pybullet.utils.pybullet_tools.ikfast.tiago.ik import get_tool_pose
 from examples.pybullet.utils.pybullet_tools.tiago_primitives import GripperCommand, Pose, Push, apply_commands, control_commands, get_goal_wrt_base
 from examples.pybullet.utils.pybullet_tools.tiago_utils import open_gripper, set_arm_conf, set_group_conf
 from examples.pybullet.utils.pybullet_tools.utils import connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
-    setTimeout, unit_quat, wait_if_gui
+    setTimeout, unit_quat, wait_if_gui, WorldSaver
 from examples.pybullet.utils.pybullet_tools.pr2_primitives import State, Trajectory
-from examples.pybullet.utils.pybullet_tools.utils import WorldSaver
+from pddlstream.algorithms.downward import TEMP_DIR
 from pddlstream.algorithms.meta import solve
-from pddlstream.utils import INF, Profiler
+from pddlstream.algorithms.skills import TEMP_SKILLS_DIR
+from pddlstream.utils import INF, Profiler, ensure_dir, safe_remove, safe_rm_dir
 from pddlstream.language.function import FunctionInfo
 from pddlstream.language.stream import StreamInfo
 
@@ -20,14 +22,14 @@ def sample_trajectory(
         problem='packed',
         number=1,
         cfree=False,
-        max_time=60,
+        max_time=30,
         teleport=False,
         enable=False,
         simulate=True,
         affordance='Alignable',
         direct=False,
-        model=None,
-        eval=False,
+        skill_modules=None,
+        evaluate=False,
         bootstrap=False,
         buffer=None,
         seed=None,
@@ -46,19 +48,12 @@ def sample_trajectory(
         raise ValueError(problem)
     problem_fn = problem_fn_from_name[problem]
 
-    # reset heuristic file
-    with open("heuristic.txt", "w") as f:
-        f.write("")
-    with open("attempts.txt", "w") as f:
-        f.write("0")
-    with open("learned_base_values.txt", "w") as f:
-        f.write("")
-
     # try to disconnect first
     try:
         disconnect()
     except:
-        print('not connected to server yet.')
+        # print('not connected to server yet.')
+        pass
     connect(use_gui=not direct)
     setTimeout()
     with HideOutput():
@@ -85,7 +80,7 @@ def sample_trajectory(
         collisions=not cfree, 
         teleport=teleport, 
         affordance=affordance, 
-        model=model, 
+        skill_modules=skill_modules, 
         stats=stats, 
         grid_search=grid_search, 
         viz=viz, 
@@ -108,6 +103,17 @@ def sample_trajectory(
     max_planner_time = 10
     effort_weight = 1
 
+    # set up files
+    ensure_dir(TEMP_SKILLS_DIR)
+    with open(os.path.join(TEMP_SKILLS_DIR,"heuristic.txt"), "w") as f:
+        f.write("")
+    with open(os.path.join(TEMP_SKILLS_DIR,"attempts.txt"), "w") as f:
+        f.write("0")
+    with open(os.path.join(TEMP_SKILLS_DIR,"learned_base_values.txt"), "w") as f:
+        f.write("")
+    with open(os.path.join(TEMP_SKILLS_DIR,"matching_streams.txt"), "w") as f:
+        f.write("")
+
     wait_if_gui()
 
     with Profiler(field='tottime', num=25): # cumtime | tottime
@@ -123,6 +129,13 @@ def sample_trajectory(
                 saver.restore()
 
     plan, _, _ = solution
+
+    # reset files
+    for filename in os.listdir(TEMP_SKILLS_DIR):
+        safe_remove(os.path.join(TEMP_SKILLS_DIR, filename))
+    safe_rm_dir(TEMP_SKILLS_DIR)
+    safe_rm_dir(TEMP_DIR)
+
     if (plan is None):
         disconnect()
         return
@@ -133,8 +146,8 @@ def sample_trajectory(
             plan,
             teleport=teleport, 
             directory=directory, 
-            policy=model, 
-            evaluate=eval, 
+            skill_modules=skill_modules, 
+            evaluate=evaluate, 
             collect=collect, 
             bootstrap=bootstrap,
             ablation=False,
@@ -153,14 +166,6 @@ def sample_trajectory(
         time_step = None if teleport else 0.05
         apply_commands(State(), commands, time_step, True)
 
-    # reset heuristic file
-    with open("heuristic.txt", "w") as f:
-        f.write("")
-    with open("attempts.txt", "w") as f:
-        f.write("0")
-    with open("learned_base_values.txt", "w") as f:
-        f.write("")
-
     wait_if_gui()
     disconnect()
     #TODO: just returns the first non-None value, but should take in skill name and compare with class name
@@ -173,7 +178,7 @@ def sample_trajectory(
 
 def evaluate_policy(
         config_path: str,
-        policy,
+        model,
         problem: str = 'packed',
         number: int = 1,
         direct: bool = True,
@@ -191,7 +196,7 @@ def evaluate_policy(
         body=problem.movable[0], 
         pose=Pose(problem.movable[0], (goal_state, unit_quat())), 
         trajectory=None, 
-        policy=policy, 
+        model=model, 
         evaluate=True, 
         collect_dir=None, 
         bootstrap=True,
@@ -244,7 +249,7 @@ def setup_pybullet_env(
 
 def train_policy(
         config_path: str,
-        policy,
+        model,
         buffer,
         problem: str = 'packed',
         number: int = 1,
@@ -264,7 +269,7 @@ def train_policy(
         pose=Pose(problem.movable[0], (goal_state, unit_quat())), 
         trajectory=None, 
         directory=None, 
-        policy=policy, 
+        model=model, 
         evaluate=False, 
         collect_dir=None, 
         bootstrap=True,
@@ -310,7 +315,7 @@ def sample_deterministic_trajectory(
         pose=Pose(problem.movable[0], (goal_state, unit_quat())), 
         trajectory=None, 
         directory=None, 
-        policy=None, 
+        model=None, 
         evaluate=False, 
         collect_dir=None, 
         bootstrap=False,

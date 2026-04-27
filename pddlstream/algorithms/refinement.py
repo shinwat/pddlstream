@@ -202,8 +202,8 @@ def iterative_plan_streams(all_evaluations, externals, optimistic_solve_fn, comp
             complexity_evals, externals, results, optimistic_solve_fn, complexity_limit,
             depth=0, constraints=None, **effort_args)
         stream_plan, action_plan, cost = opt_solution
-        print('Attempt: {} | Results: {} | Depth: {} | Success: {} | Time: {:.3f}'.format(
-            num_iterations, len(results), final_depth, is_plan(action_plan), elapsed_time(start_time)))
+        # print('Attempt: {} | Results: {} | Depth: {} | Success: {} | Time: {:.3f}'.format(
+        #     num_iterations, len(results), final_depth, is_plan(action_plan), elapsed_time(start_time)))
         if is_plan(action_plan):
             return OptSolution(stream_plan, action_plan, cost)
         if final_depth == 0:

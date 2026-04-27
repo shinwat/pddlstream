@@ -33,8 +33,14 @@ def get_stable_pose(init_pose, block, table):
 
 #######################################################
 
-def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, friction=False):
-    # TODO: packing problem where you have to place in one direction
+def packed(
+        arm='middle', 
+        grasp_type='top', 
+        num=5, 
+        directory=None, 
+        evalNum=0, 
+        friction=False,
+    ):
     base_extent = 5.0
 
     base_limits = (-base_extent/2.*np.ones(2), base_extent/2.*np.ones(2))
@@ -63,7 +69,7 @@ def packed(arm='middle', grasp_type='top', num=5, directory=None, evalNum=0, fri
     set_point(plate, Point(z=plate_z))
     surfaces = [table, plate]
 
-    blocks = [create_box(block_width, block_width, block_height, color=BLUE, mass=0.05) for _ in range(num)]
+    blocks = [create_box(block_width, block_width, block_height, color=BLUE, mass=0.5) for _ in range(num)]
     if friction:
         for obj in blocks:
             set_dynamics(obj, lateralFriction=0.05) #default: 0.5

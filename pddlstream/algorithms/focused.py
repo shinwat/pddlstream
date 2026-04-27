@@ -15,6 +15,7 @@ from pddlstream.algorithms.refinement import iterative_plan_streams, get_optimis
 from pddlstream.algorithms.scheduling.plan_streams import OptSolution
 from pddlstream.algorithms.reorder import reorder_stream_plan
 from pddlstream.algorithms.skeleton import SkeletonQueue
+from pddlstream.algorithms.skills import map_causally_exclusively_dependent_streams
 from pddlstream.algorithms.visualization import reset_visualizations, create_visualizations, \
     has_pygraphviz, log_plans
 from pddlstream.language.constants import is_plan, get_length, str_from_plan, INFEASIBLE
@@ -161,10 +162,10 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
 
         ################
 
-        print('\nIteration: {} | Complexity: {} | Skeletons: {} | Skeleton Queue: {} | Disabled: {} | Evaluations: {} | '
-              'Eager Calls: {} | Cost: {:.3f} | Search Time: {:.3f} | Sample Time: {:.3f} | Total Time: {:.3f}'.format(
-            num_iterations, complexity_limit, len(skeleton_queue.skeletons), len(skeleton_queue), len(disabled),
-            len(evaluations), eager_calls, store.best_cost, store.search_time, store.sample_time, store.elapsed_time()))
+        # print('\nIteration: {} | Complexity: {} | Skeletons: {} | Skeleton Queue: {} | Disabled: {} | Evaluations: {} | '
+        #       'Eager Calls: {} | Cost: {:.3f} | Search Time: {:.3f} | Sample Time: {:.3f} | Total Time: {:.3f}'.format(
+        #     num_iterations, complexity_limit, len(skeleton_queue.skeletons), len(skeleton_queue), len(disabled),
+        #     len(evaluations), eager_calls, store.best_cost, store.search_time, store.sample_time, store.elapsed_time()))
         optimistic_solve_fn = get_optimistic_solve_fn(goal_exp, domain, negative,
                                                       replan_actions=replan_actions, reachieve=use_skeletons,
                                                       max_cost=min(store.best_cost, constraints.max_cost),
@@ -194,9 +195,9 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
 
         num_optimistic = sum(r.optimistic for r in stream_plan) if stream_plan else 0
         action_plan = opt_plan.action_plan if is_plan(opt_plan) else opt_plan
-        print('Stream plan ({}, {}, {:.3f}): {}\nAction plan ({}, {:.3f}): {}'.format(
-            get_length(stream_plan), num_optimistic, compute_plan_effort(stream_plan), stream_plan,
-            get_length(action_plan), cost, str_from_plan(action_plan)))
+        # print('Stream plan ({}, {}, {:.3f}): {}\nAction plan ({}, {:.3f}): {}'.format(
+        #     get_length(stream_plan), num_optimistic, compute_plan_effort(stream_plan), stream_plan,
+        #     get_length(action_plan), cost, str_from_plan(action_plan)))
         if is_plan(stream_plan) and visualize:
             log_plans(stream_plan, action_plan, num_iterations)
             create_visualizations(evaluations, stream_plan, num_iterations)
@@ -206,10 +207,14 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
         if (stream_plan is INFEASIBLE) and (not eager_instantiator) and (not skeleton_queue) and (not disabled):
             break
         if not is_plan(stream_plan):
-            print('No plan: increasing complexity from {} to {}'.format(complexity_limit, complexity_limit+complexity_step))
+            # print('No plan: increasing complexity from {} to {}'.format(complexity_limit, complexity_limit+complexity_step))
             complexity_limit += complexity_step
             if not eager_disabled:
                 reenable_disabled(evaluations, domain, disabled)
+
+        # MAP_SKILLS
+        if is_plan(stream_plan):
+            map_causally_exclusively_dependent_streams(stream_plan)
 
         #print(stream_plan_complexity(evaluations, stream_plan))
         if not use_skeletons:
@@ -239,7 +244,7 @@ def solve_abstract(problem, constraints=PlanConstraints(), stream_info={}, repla
         'complexity': complexity_limit,
         'skeletons': len(skeleton_queue.skeletons),
     })
-    print('Summary: {}'.format(str_from_object(summary, ndigits=3))) # TODO: return the summary
+    # print('Summary: {}'.format(str_from_object(summary, ndigits=3))) # TODO: return the summary
 
     write_stream_statistics(externals, verbose)
     return store.extract_solution(), summary
