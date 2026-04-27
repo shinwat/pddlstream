@@ -30,7 +30,7 @@ import os
 import time
 import numpy as np
 
-def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', model=None, stats=None, eval=None, friction=False, reach=None, grid_search=False, viz=False, ignore_traj=False):
+def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance='Graspable', skill_modules=None, stats=None, eval=None, friction=False, reach=None, grid_search=False, viz=False, ignore_traj=False):
     robot = problem.robot
 
     domain_pddl = read(get_file_path(__file__, 'domain.pddl'))
@@ -104,7 +104,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
         'sample-hook': from_fn(get_hook_gen(problem, collisions=collisions)),
         'plan-sweep-motion': from_fn(get_sweep_gen(problem, collisions=collisions)),
         'inverse-hookable-kinematics': from_gen_fn(get_hook_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport)),
-        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, collisions=collisions, teleport=teleport, model=model, stats=stats, reach_dir=reach, grid_search=grid_search, viz=viz)),
+        'inverse-reachable-kinematics': from_gen_fn(get_ik_ir_traj_gen(problem, 'inverse-reachable-kinematics', skill_modules=skill_modules, collisions=collisions, teleport=teleport, stats=stats, reach_dir=reach, grid_search=grid_search, viz=viz)),
         'inverse-kinematics': from_gen_fn(get_ik_ir_gen(problem, collisions=collisions, teleport=teleport)),
         'plan-base-motion': from_fn(get_motion_gen(problem, collisions=collisions, teleport=teleport)),
         'test-cfree-pose-pose': from_test(get_cfree_pose_pose_test(collisions=collisions)),
@@ -121,7 +121,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, policy=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None, dense=False, jammed=False):
+def post_process(problem, plan, teleport=False, directory=None, skill_modules=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None, dense=False, jammed=False):
     if plan is None:
         return None
     commands = []
@@ -156,19 +156,24 @@ def post_process(problem, plan, teleport=False, directory=None, policy=None, eva
             position = get_max_limit(problem.robot, gripper_joint)
             open_gripper = GripperCommand(problem.robot, position, teleport=teleport)
             detach = Detach(problem.robot, b)
-            push = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, bootstrap, ablation, buffer, stats, dense=dense, jammed=jammed)
-            new_commands = [open_gripper, push, push.reverse()] if policy is None else [open_gripper, push]            
+            # check module type with action name 
+            try:
+                skill_model = list(skill_modules[name].items())[0][-1]
+            except:
+                skill_model = None
+            push = Push(problem.robot, b, p, t, directory, skill_model, evaluate, collect, bootstrap, ablation, buffer, stats, dense=dense, jammed=jammed)
+            new_commands = [open_gripper, push, push.reverse()] if skill_model is None else [open_gripper, push]            
         elif name == 'hook':
             c = args[-1]
             new_commands = c.commands
         elif name == 'sweep': 
             _, b, _, _, p, _, _, _, c = args
             [t] = c.commands
-            sweep = Push(problem.robot, b, p, t, directory, policy, evaluate, collect, ablation=ablation)
+            sweep = Push(problem.robot, b, p, t, directory, None, evaluate, collect, ablation=ablation)
             new_commands = [sweep, sweep.reverse()]
         else:
             raise ValueError(name)
-        print(i, name, args, new_commands)
+        # print(i, name, args, new_commands)
         commands += new_commands
     return commands
 
@@ -219,12 +224,15 @@ def main(verbose=True):
         problem = problem_fn(num=args.number, directory=args.read, evalNum=args.zzz, friction=args.friction)
     saver = WorldSaver()
 
+    # define skill modules
+    skill_modules = {'push': {'plan-push-motion': args.policy}} if args.q else None
+
     pddlstream_problem = pddlstream_from_problem(
         problem, 
         collisions=not args.cfree, 
         teleport=args.teleport, 
         affordance=args.affordance, 
-        model=args.policy if args.q else None, 
+        skill_modules=skill_modules, 
         eval=args.range, 
         friction=args.friction, 
         reach=args.reach, 
@@ -302,7 +310,7 @@ def main(verbose=True):
             plan,
             teleport=args.teleport, 
             directory=args.directory, 
-            policy=args.policy, 
+            skill_modules=skill_modules, 
             evaluate=args.eval, 
             collect=args.collect, 
             bootstrap=args.bootstrap,
