@@ -130,6 +130,9 @@ def sample_trajectory(
 
     plan, _, _ = solution
 
+    # read from file
+    with open(os.path.join(TEMP_SKILLS_DIR,"heuristic.txt"), "r") as f:
+        heuristic_failed = f.read() == "failed"
     # remove temporary folders
     safe_rm_dir(TEMP_SKILLS_DIR)
     safe_rm_dir(TEMP_DIR)
@@ -172,6 +175,7 @@ def sample_trajectory(
     except StopIteration:
         print('no trajectory.')
         return
+    trajectory['heuristic'] = not heuristic_failed
     return trajectory
 
 def evaluate_policy(
