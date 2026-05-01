@@ -121,7 +121,7 @@ def pddlstream_from_problem(problem, collisions=True, teleport=False, affordance
 
 #######################################################
 
-def post_process(problem, plan, teleport=False, directory=None, skill_modules=None, evaluate=False, collect=None, bootstrap=False, ablation=False, buffer=None, stats=None, dense=False, jammed=False):
+def post_process(problem, plan, teleport=False, directory=None, skill_modules=None, evaluate=False, bootstrap=False, ablation=False, buffer=None, stats=None, dense=False, jammed=False):
     if plan is None:
         return None
     commands = []
@@ -161,7 +161,7 @@ def post_process(problem, plan, teleport=False, directory=None, skill_modules=No
                 skill_model = list(skill_modules[name].items())[0][-1]
             except:
                 skill_model = None
-            push = Push(problem.robot, b, p, t, directory, skill_model, evaluate, collect, bootstrap, ablation, buffer, stats, dense=dense, jammed=jammed)
+            push = Push(problem.robot, b, p, t, directory, skill_model, evaluate, bootstrap, ablation, buffer, stats, dense=dense, jammed=jammed)
             new_commands = [open_gripper, push, push.reverse()] if skill_model is None else [open_gripper, push]            
         elif name == 'hook':
             c = args[-1]
@@ -169,7 +169,7 @@ def post_process(problem, plan, teleport=False, directory=None, skill_modules=No
         elif name == 'sweep': 
             _, b, _, _, p, _, _, _, c = args
             [t] = c.commands
-            sweep = Push(problem.robot, b, p, t, directory, None, evaluate, collect, ablation=ablation)
+            sweep = Push(problem.robot, b, p, t, directory, None, evaluate, ablation=ablation)
             new_commands = [sweep, sweep.reverse()]
         else:
             raise ValueError(name)
@@ -199,7 +199,6 @@ def main(verbose=True):
     parser.add_argument('-direct', action='store_true', help='no GUI')
     parser.add_argument('-p','--policy', type=str, default=None, help='path to the policy directory if available')
     parser.add_argument('-e','--eval', type=str, default=None, help='path to save rollout evaluations')
-    parser.add_argument('-c','--collect', type=str, default=None, help='path to save push configurations')
     parser.add_argument('-r', '--read', type=str, default=None, help='path to directory with saved object poses')
     parser.add_argument('-z', '--zzz', default=0, type=int, help='Evaluation number')
     parser.add_argument('-bootstrap', action='store_true', help='whether to record policy demos for bootstrap learning')
@@ -312,7 +311,6 @@ def main(verbose=True):
             directory=args.directory, 
             skill_modules=skill_modules, 
             evaluate=args.eval, 
-            collect=args.collect, 
             bootstrap=args.bootstrap,
             ablation=args.ablation
         )

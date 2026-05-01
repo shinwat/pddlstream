@@ -14,7 +14,7 @@ from examples.pybullet.utils.pybullet_tools.pr2_primitives import State, Traject
 from pddlstream.algorithms.downward import TEMP_DIR
 from pddlstream.algorithms.meta import solve
 from pddlstream.algorithms.skills import TEMP_SKILLS_DIR
-from pddlstream.utils import INF, Profiler, ensure_dir, safe_remove, safe_rm_dir
+from pddlstream.utils import INF, Profiler, ensure_dir, safe_rm_dir
 from pddlstream.language.function import FunctionInfo
 from pddlstream.language.stream import StreamInfo
 
@@ -36,8 +36,7 @@ def sample_trajectory(
         stats=None,
         grid_search=True,
         directory=None, 
-        collect=None,
-        config_path=None,
+        config_data=None,
         viz=False,
         dense=False,
         jammed=False,
@@ -60,15 +59,12 @@ def sample_trajectory(
         problem = problem_fn(num=number)
 
     # if path to initial configuration given, put block in that state
-    if config_path is not None:
-        data = np.load(config_path, allow_pickle=True).tolist()
-        init_pose = (data[10:13], data[13:17])
+    if config_data is not None:
+        init_pose = (config_data[10:13], config_data[13:17])
         if init_pose[0][-1] < 0.1:
             print("block on the floor.")
             disconnect()
             return None
-        # KLUDGE: need to lift block
-        lifted_pose = multiply(((0., 0., 0.01), unit_quat()), init_pose)
         for block in problem.movable:
             lifted_pose = get_stable_pose(init_pose, block, problem.surfaces[0])
             set_pose(block, lifted_pose)
@@ -149,7 +145,6 @@ def sample_trajectory(
             directory=directory, 
             skill_modules=skill_modules, 
             evaluate=evaluate, 
-            collect=collect, 
             bootstrap=bootstrap,
             ablation=False,
             buffer=buffer,
@@ -179,7 +174,7 @@ def sample_trajectory(
     return trajectory
 
 def evaluate_policy(
-        config_path: str,
+        config_data: str,
         model,
         problem: str = 'packed',
         number: int = 1,
@@ -188,7 +183,7 @@ def evaluate_policy(
         jammed=False,
 ):
     try:
-        problem, goal_state = setup_pybullet_env(config_path, problem, number, direct)
+        problem, goal_state = setup_pybullet_env(config_data, problem, number, direct)
     except:
         disconnect()
         return None
@@ -200,7 +195,6 @@ def evaluate_policy(
         trajectory=None, 
         model=model, 
         evaluate=True, 
-        collect_dir=None, 
         bootstrap=True,
         ablation=False,
         stats=stats,
@@ -211,7 +205,7 @@ def evaluate_policy(
     return success
 
 def setup_pybullet_env(
-        config_path: str, 
+        data: np.ndarray, 
         problem: str,
         number: int = 1,
         direct: bool = True,
@@ -226,7 +220,6 @@ def setup_pybullet_env(
         problem = problem_fn(num=number)
     
     # set up almost solved environment
-    data = np.load(config_path, allow_pickle=True).tolist()
     torso_state = data[0]
     arm_state = data[1:8]
     gripper_state = data[8:10]
@@ -250,7 +243,7 @@ def setup_pybullet_env(
     return problem, goal_state
 
 def train_policy(
-        config_path: str,
+        config_data: str,
         model,
         buffer,
         problem: str = 'packed',
@@ -261,7 +254,7 @@ def train_policy(
         jammed=False,
 ):
     try:
-        problem, goal_state = setup_pybullet_env(config_path, problem, number, direct)
+        problem, goal_state = setup_pybullet_env(config_data, problem, number, direct)
     except:
         disconnect()
         return None
@@ -273,7 +266,6 @@ def train_policy(
         directory=None, 
         model=model, 
         evaluate=False, 
-        collect_dir=None, 
         bootstrap=True,
         ablation=False,
         buffer=buffer,
@@ -286,8 +278,8 @@ def train_policy(
     return logs
 
 def sample_deterministic_trajectory(
-        eval_path: str,
-        demo_path: str,
+        config_data,
+        demo_data,
         problem='packed',
         number=1,
         cfree=False,
@@ -307,7 +299,7 @@ def sample_deterministic_trajectory(
         directory=None
 ):
     try:
-        problem, goal_state = setup_pybullet_env(eval_path, problem, number, direct)
+        problem, goal_state = setup_pybullet_env(config_data, problem, number, direct)
     except:
         disconnect()
         return None
@@ -319,12 +311,11 @@ def sample_deterministic_trajectory(
         directory=None, 
         model=None, 
         evaluate=False, 
-        collect_dir=None, 
         bootstrap=False,
         ablation=False,
         buffer=buffer,
         stats=stats,
-        demo_path=demo_path
+        demo_dict=demo_data
     )
     # directory=directory, 
     success = push.control()
@@ -415,7 +406,6 @@ def create_problem_and_solve(
             directory=None, 
             policy=model, 
             evaluate=False, 
-            collect=None, 
             bootstrap=bootstrap,
             ablation=False,
             buffer=buffer,
