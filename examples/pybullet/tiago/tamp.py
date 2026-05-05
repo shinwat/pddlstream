@@ -40,6 +40,7 @@ def sample_trajectory(
         viz=False,
         dense=False,
         jammed=False,
+        use_heuristic=True,
 ):
     set_numpy_seed(seed)
     problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
@@ -76,7 +77,7 @@ def sample_trajectory(
         collisions=not cfree, 
         teleport=teleport, 
         affordance=affordance, 
-        skill_modules=skill_modules, 
+        skill_modules=skill_modules if use_heuristic else None, 
         stats=stats, 
         grid_search=grid_search, 
         viz=viz, 
