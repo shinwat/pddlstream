@@ -5,7 +5,7 @@ import numpy as np
 from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, create_tiago, create_plate, create_table, Problem
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, set_group_conf, open_gripper, set_arm_conf
 from examples.pybullet.utils.pybullet_tools.utils import get_aabb, get_bodies, placement_on_aabb, sample_placement, pairwise_collision, \
-    add_data_path, load_pybullet, set_dynamics, set_point, Point, create_box, set_pose, stable_z, unit_quat, \
+    add_data_path, load_pybullet, set_dynamics, set_point, Point, create_box, set_pose, stable_z, unit_quat, create_cylinder, \
     GREEN, BLUE, BROWN, YELLOW, pose_from_pose2d
 
 def sample_placements(body_surfaces, obstacles=None, min_distances={}):
@@ -69,7 +69,7 @@ def packed(
     set_point(plate, Point(z=plate_z))
     surfaces = [table, plate]
 
-    blocks = [create_box(block_width, block_width, block_height, color=BLUE, mass=0.5) for _ in range(num)]
+    blocks = [create_cylinder(block_width/2, block_height, color=BLUE, mass=0.5) for _ in range(num)]
     if friction:
         for obj in blocks:
             set_dynamics(obj, lateralFriction=0.05) #default: 0.5
