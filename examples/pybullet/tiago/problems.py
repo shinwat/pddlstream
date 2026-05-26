@@ -6,7 +6,7 @@ from examples.pybullet.utils.pybullet_tools.tiago_problems import create_hook, c
 from examples.pybullet.utils.pybullet_tools.tiago_utils import get_carry_conf, set_group_conf, open_gripper, set_arm_conf
 from examples.pybullet.utils.pybullet_tools.utils import get_aabb, get_bodies, placement_on_aabb, sample_placement, pairwise_collision, \
     add_data_path, load_pybullet, set_dynamics, set_point, Point, create_box, set_pose, stable_z, unit_quat, create_cylinder, \
-    GREEN, BLUE, BROWN, YELLOW, pose_from_pose2d
+    GREEN, BLUE, BROWN, YELLOW, pose_from_pose2d, with_retries
 
 def sample_placements(body_surfaces, obstacles=None, min_distances={}):
     if obstacles is None:
@@ -55,7 +55,7 @@ def packed(
     initial_conf = get_carry_conf(grasp_type)
 
     add_data_path()
-    floor = load_pybullet("plane.urdf")
+    floor = with_retries(load_pybullet, "plane.urdf")
     tiago = create_tiago()
     set_arm_conf(tiago, initial_conf)
     open_gripper(tiago)
