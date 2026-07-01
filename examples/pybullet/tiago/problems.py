@@ -34,6 +34,7 @@ def get_stable_pose(init_pose, block, table):
 #######################################################
 
 def packed(
+        init_pose=None,
         arm='middle', 
         grasp_type='top', 
         num=5, 
@@ -73,10 +74,14 @@ def packed(
     if friction:
         for obj in blocks:
             set_dynamics(obj, lateralFriction=0.05) #default: 0.5
-    initial_surfaces = {block: table for block in blocks}
 
-    min_distances = {block: 0.05 for block in blocks}
-    sample_placements(initial_surfaces, min_distances=min_distances)
+    if len(blocks) == 1 and init_pose is not None:
+        pose_on_table = pose_from_pose2d(init_pose, stable_z(blocks[0], table))
+        set_pose(blocks[0], pose_on_table)
+    else:
+        initial_surfaces = {block: table for block in blocks}
+        min_distances = {block: 0.05 for block in blocks}
+        sample_placements(initial_surfaces, min_distances=min_distances)
 
     if directory is not None:
         data = np.genfromtxt(directory, delimiter=',')

@@ -1,16 +1,15 @@
 #!/usr/bin/env python
 
+from operator import mul, add
 import os
 import numpy as np
 from examples.pybullet.tiago.run import pddlstream_from_problem, post_process
 from examples.pybullet.tiago.problems import PROBLEMS, get_stable_pose
 from examples.pybullet.tiago.streams import BASE_CONSTANT
-from examples.pybullet.utils.pybullet_tools.ikfast.tiago.ik import get_tool_pose_wrt_base
-from examples.pybullet.utils.pybullet_tools.tiago_primitives import GripperCommand, Pose, Push, apply_commands, control_commands, get_goal_wrt_base
-from examples.pybullet.utils.pybullet_tools.tiago_utils import open_gripper, set_arm_conf, set_group_conf
-from examples.pybullet.utils.pybullet_tools.utils import connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
-    setTimeout, unit_quat, wait_if_gui, WorldSaver
-from examples.pybullet.utils.pybullet_tools.pr2_primitives import State, Trajectory
+from examples.pybullet.utils.pybullet_tools.tiago_primitives import GRIPPER_NORM_COST, State, Trajectory, Pose, Push, apply_commands, control_commands, get_goal_wrt_base
+from examples.pybullet.utils.pybullet_tools.tiago_utils import get_arm_conf, get_gripper_state, open_gripper, set_arm_conf, set_group_conf
+from examples.pybullet.utils.pybullet_tools.utils import Euler, Point, connect, disable_real_time, disconnect, HideOutput, LockRenderer, enable_gravity, multiply, set_numpy_seed, set_pose, \
+    setTimeout, unit_quat, wait_if_gui, WorldSaver, Pose as Posee
 from pddlstream.algorithms.downward import TEMP_DIR
 from pddlstream.algorithms.meta import solve
 from pddlstream.algorithms.skills import TEMP_SKILLS_DIR
@@ -18,14 +17,13 @@ from pddlstream.utils import INF, Profiler, ensure_dir, safe_rm_dir
 from pddlstream.language.function import FunctionInfo
 from pddlstream.language.stream import StreamInfo
 
-def sample_trajectory(
+def solve_problem(
         problem='packed',
         number=1,
         cfree=False,
         max_time=30,
         teleport=False,
         enable=False,
-        simulate=True,
         affordance='Alignable',
         direct=False,
         skill_modules=None,
@@ -41,6 +39,7 @@ def sample_trajectory(
         dense=False,
         jammed=False,
         use_heuristic=True,
+        init_pose=None,
 ):
     set_numpy_seed(seed)
     problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
@@ -57,7 +56,7 @@ def sample_trajectory(
     connect(use_gui=not direct)
     setTimeout()
     with HideOutput():
-        problem = problem_fn(num=number)
+        problem = problem_fn(init_pose=init_pose, num=number)
 
     # if path to initial configuration given, put block in that state
     if config_data is not None:
@@ -155,6 +154,62 @@ def sample_trajectory(
         )
         saver.restore()
 
+    return commands, heuristic_failed
+
+def sample_trajectory(
+        env_params=None,
+        problem='packed',
+        number=1,
+        cfree=False,
+        max_time=30,
+        teleport=False,
+        enable=False,
+        simulate=True,
+        affordance='Alignable',
+        direct=False,
+        skill_modules=None,
+        evaluate=False,
+        bootstrap=False,
+        buffer=None,
+        seed=None,
+        stats=None,
+        grid_search=True,
+        directory=None, 
+        config_data=None,
+        viz=False,
+        dense=False,
+        jammed=False,
+        use_heuristic=True,
+):
+    result = solve_problem(
+        problem,
+        number,
+        cfree,
+        max_time,
+        teleport,
+        enable,
+        affordance,
+        direct,
+        skill_modules,
+        evaluate,
+        bootstrap,
+        buffer,
+        seed,
+        stats,
+        grid_search,
+        directory, 
+        config_data,
+        viz,
+        dense,
+        jammed,
+        use_heuristic,
+        env_params,
+    )
+    if result is None:
+        return
+    else:
+        commands, heuristic_failed = result
+
     wait_if_gui()
     trajectories = None
     if simulate:
@@ -175,7 +230,7 @@ def sample_trajectory(
     return trajectory
 
 def evaluate_policy(
-        config_data: str,
+        config_data,
         model,
         problem: str = 'packed',
         number: int = 1,
@@ -325,101 +380,56 @@ def sample_deterministic_trajectory(
 
 def create_problem_and_solve(
         block_pose,
-        problem='push',
+        problem='packed',
         cfree=False,
         max_time=30,
         teleport=False,
         enable=False,
         simulate=True,
         direct=True,
-        model=None,
+        skill_modules=None,
         bootstrap=False,
-        value_function=None,
         buffer=None,
         stats=None,
         grid_search=True,
+        jammed=False,
+        use_heuristic=True,
 ):
-    # pick the right problem
-    problem_fn_from_name = {fn.__name__: fn for fn in PROBLEMS}
-    if problem not in problem_fn_from_name:
-        raise ValueError(problem)
-    problem_fn = problem_fn_from_name[problem]
-
-    # connect to bullet
-    connect(use_gui=not direct)
-    with HideOutput():
-        problem = problem_fn(block_pose)
-
-    saver = WorldSaver()
-
-    pddlstream_problem = pddlstream_from_problem(
-        problem, 
-        collisions=not cfree, 
-        teleport=teleport, 
-        affordance='Alignable', 
-        model=model,
-        stats=stats, 
+    result = solve_problem(
+        problem,
+        1,
+        cfree,
+        max_time,
+        teleport,
+        enable,
+        'Alignable',
+        direct,
+        skill_modules,
+        bootstrap=bootstrap,
+        buffer=buffer,
+        stats=stats,
         grid_search=grid_search,
-        ignore_traj=False
+        jammed=jammed,
+        init_pose=block_pose,
+        use_heuristic=use_heuristic,
+        config_data=None,
+        viz=False,
+        dense=False,
+        directory=None, 
+        evaluate=True,
+        seed=None,
     )
-    
-    stream_info = {
-        'inverse-kinematics': StreamInfo(),
-        'plan-base-motion': StreamInfo(overhead=1e1),
-
-        'test-cfree-pose-pose': StreamInfo(p_success=1e-3, verbose=False),
-        'test-cfree-approach-pose': StreamInfo(p_success=1e-2, verbose=False),
-        'test-cfree-traj-pose': StreamInfo(p_success=1e-1, verbose=False),
-
-        'Distance': FunctionInfo(p_success=0.99, opt_fn=lambda q1, q2: BASE_CONSTANT),
-    }
-
-    success_cost = INF
-    planner = 'ff-wastar3'
-    search_sample_ratio = 2
-    max_planner_time = 10
-    effort_weight = 1
-
-    wait_if_gui()
-
-    with Profiler(field='tottime', num=25): # cumtime | tottime
-        with LockRenderer(lock=not enable):
-            with HideOutput():
-                solution, _ = solve(pddlstream_problem, algorithm='adaptive', stream_info=stream_info,
-                                planner=planner, max_planner_time=max_planner_time,
-                                unit_costs=False, success_cost=success_cost,
-                                max_time=max_time, verbose=False, debug=False,
-                                unit_efforts=True, effort_weight=effort_weight,
-                                search_sample_ratio=search_sample_ratio,
-                                visualize=False)
-                saver.restore()
-
-    plan, _, _ = solution
-    if (plan is None):
-        disconnect()
+    if result is None:
         return
-
-    with LockRenderer(lock=not enable):
-        commands = post_process(
-            problem, 
-            plan,
-            teleport=teleport, 
-            directory=None, 
-            policy=model, 
-            evaluate=False, 
-            bootstrap=bootstrap,
-            ablation=False,
-            buffer=buffer,
-            stats=stats,
-        )
-        saver.restore()
+    else:
+        commands, heuristic_failed = result
 
     # need to simulate the commands so that robot pose can be recovered
     if simulate:
-        control_commands(commands)
+        control_commands(commands[:-1])
     else:
         time_step = None if teleport else 0.05
-        apply_commands(State(), commands[:-3], time_step, True) #KLUDGE: push fails when apply
+        apply_commands(State(), commands[:-1], time_step)
     
     targets = dict()
     for command in commands:
@@ -427,11 +437,28 @@ def create_problem_and_solve(
             end_conf = command.path[-1]
             if len(end_conf.joints) == 3:
                 targets['base_pose'] = end_conf.values
-        if isinstance(command, GripperCommand):
-                targets['gripper_pose'] = get_tool_pose_wrt_base(command.robot)
         if isinstance(command, Push):
             goal = get_goal_wrt_base(command.robot, command.pose.value)
             targets['goal_pos'] = goal # array
+            targets['aligned_arm_joints'] = get_arm_conf(command.robot)
             break
     
-    return targets
+    return targets, heuristic_failed
+
+def get_gripper_pose(model, goal_pos, block_from_base, gripper_pose, gripper_consts):
+    # 1. recover state
+    gripper_state = get_gripper_state(gripper_pose)
+    block_state = [block_from_base[0], block_from_base[1], np.sin(block_from_base[-1]), np.cos(block_from_base[-1])]
+    state = np.concatenate((gripper_state, block_state, goal_pos))
+    # 2. run policy
+    action = model.actor.act(state, device="cpu")
+    # 3. convert to joints
+    (roll, pitch, z) = gripper_consts
+    unnormed_action = list(map(mul, action,  GRIPPER_NORM_COST))
+    (x, y, sin_yaw, cos_yaw) = list(map(add, unnormed_action, gripper_state))
+    yaw = np.arctan2(sin_yaw, cos_yaw)
+    target_gripper_pose = Posee(
+        Point(x, y, z),
+        Euler(roll, pitch, yaw)
+    )
+    return target_gripper_pose, unnormed_action[-2:]
